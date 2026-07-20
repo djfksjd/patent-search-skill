@@ -1,0 +1,42 @@
+# 비밀키 — 절대 커밋 금지
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# 조사 산출물/원본 응답 — 조사 대상(발명·검색어)이 드러나므로 커밋 금지
+raw_*.xml
+bib_*.xml
+claims.json
+kipris_results.tsv
+search_manifest.json
+gp_results.tsv
+patent-search-*.md
+queries*.txt
+appnos*.txt
+*.log
+psearch/
+evidence/
+work/
+output/
+outputs/
+reports/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# OS/에디터
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
