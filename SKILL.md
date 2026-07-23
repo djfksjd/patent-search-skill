@@ -28,23 +28,32 @@ description: "특허 선행기술조사 + 차별화 전략 스킬. 사용자가 
 
 이후 **구성요소 분해표** 작성: `문제 | 수단(구성요소 A, B, C…) | 효과`. 구성요소는 "A가 있다"만이 아니라 **관계까지 원자화**한다(예: "A가 B의 출력에 따라 C를 제어한다" — A·B·C 존재와 제어관계는 별개 행).
 
+## 0.5 STOP GATE — 외부 검색 승인 (통과 전 1단계 진행 금지)
+
+Intake와 구성요소 분해가 끝나면, **첫 외부 검색 전에 반드시 멈춘다**:
+
+1. `검색어 목록(일반화된 기술 키워드만) | 외부로 나가는 정보 | 사용할 소스(KIPRIS/Google Patents 등)` 표를 사용자에게 제시한다.
+2. **사용자의 명시적 승인 답변을 받기 전에는 KIPRIS·Google Patents·브라우저·검색 API를 일절 호출하지 않는다.** 이 게이트는 생략·축약할 수 없다.
+3. 발명 설명 전문·미공개 구현 세부·고객명·수치는 검색어에 넣지 않는다(하드룰 참조).
+
 ## 1. 데이터 소스 준비
 
 - **KIPRIS Plus API**: 스킬 폴더 `.env`의 `KIPRIS_KEY` 확인 (키는 로그·리포트·명령행에 노출 금지 — 스크립트가 `.env`/환경변수에서 직접 읽는다).
   - 키가 있으면 1차 소스. **동봉 스크립트 사용** — 경로는 이 SKILL.md가 있는 디렉토리 기준 절대경로로 해석하고, 출력은 스크래치패드 등 별도 작업 폴더로 보낸다:
     - `python3 <스킬폴더>/scripts/kipris_search.py "검색어1" "검색어2" … --rows 30 --max-pages 3 --out <작업폴더>` → 원본 XML + 중복 제거 `kipris_results.tsv` + `search_manifest.json`. **매니페스트의 `partial=true`인 검색식은 전체를 수집하지 못한 것** — max-pages 확대 또는 검색식 세분화로 해소하고, 해소 못 하면 리포트 한계에 기록.
     - `python3 <스킬폴더>/scripts/kipris_claims.py <출원번호…> --out <작업폴더>` → `claims.json`(청구항 전문) + 문헌별 원본 XML. **정독 대상만 호출**(쿼터 절약). JSON의 `current_enforceable_claims="unknown"` 의미: 보정·정정·심판 미반영 가능 — FTO에 쓰기 전 KIPRIS 웹에서 현재 청구항 재확인.
-    - 두 스크립트 모두 실패 시 종료 코드 1 — **0이 아닌 종료를 성공으로 취급하지 않는다.**
-  - 검색·서지·청구항·법적상태는 서비스가 다를 수 있으니 새 서비스는 **테스트 호출**로 응답 구조·쿼터를 확인하고, 실패 시 plus.kipris.or.kr 공식 문서를 조회해 교정한다(이 스킬의 API 지식을 맹신하지 말 것 — 조회한 문서 URL과 확인일을 기록).
+    - 두 스크립트 모두 실패 시 종료 코드 1 — **0이 아닌 종료를 성공으로 취급하지 않는다.** 에러로 중단된 검색식도 `partial=true`로 기록된다. kipris_search는 기존 산출물이 있는 `--out`에 쓰기를 거부한다(실행마다 새 작업 폴더 사용 — 증거 보존). kipris_claims는 기존 `claims.json`에 병합한다.
+  - 검색·서지·청구항·법적상태는 서비스가 다를 수 있으니 새 서비스는 **테스트 호출**로 응답 구조·쿼터를 확인하고, 실패 시 plus.kipris.or.kr 공식 문서를 조회해 교정한다(이 스킬의 API 지식을 맹신하지 말 것 — 조회한 문서 URL과 확인일을 기록). **수동 테스트 호출 시에도 키를 명령행에 직접 쓰지 않는다** — `KIPRIS_KEY`를 환경변수로 주입하거나 동봉 스크립트를 경유한다(명령행·트랜스크립트에 키가 남는다). 반드시 `https://`로만 호출한다.
   - **검증된 엔드포인트** (2026-07-20 실호출 확인, ServiceKey는 URL 인코딩 필수 — 키에 `=` 포함):
-    - 검색: `http://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch?word=<인코딩 검색어>&ServiceKey=<키>` — XML, 건당 출원번호·발명명칭·초록·IPC·registerStatus(등록/공개 등) 포함.
+    - 검색: `https://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch?word=<인코딩 검색어>&ServiceKey=<키>` — XML, 건당 출원번호·발명명칭·초록·IPC·registerStatus(등록/공개 등) 포함.
     - 서지 상세+청구항 전문: `.../patUtiModInfoSearchSevice/getBibliographyDetailInfoSearch?applicationNumber=<출원번호>&ServiceKey=<키>` — `<claimInfoArray>`에 청구항 전문 포함(정독 단계의 핵심).
     - 에러 코드: 30=키 미등록, 31=상품 이용기간 비활성(마이페이지에서 상품 신청·기간 확인 안내).
   - 키가 없으면 아래 **키 발급 절차**를 안내하고, **Google Patents + KIPRIS 웹 검색(kpat.kipris.or.kr)** 폴백으로 진행. 리포트에 "KIPRIS API 미사용 — 국내 커버리지·법적 상태 정확도 제한"을 고지.
   - **키 발급 절차** (2026-07-20 공식 사이트 확인 기준 — 변동 가능, 재확인 후 안내):
     1. plus.kipris.or.kr 회원 가입 → ② Open API 메뉴에서 상품 선택 → ③ 이용(구매) 신청 → ④ 마이페이지 > APIKEY관리에서 인증키 확인.
     2. 수수료: **Open API는 매월 1,000회 호출까지 무료**(매월 1일 초기화, 출처: plus.kipris.or.kr/portal/use/paymentMmg.do?menuNo=210112). 초과 시 유료(일 단위 과금, 개인·중소기업 할인 있음) — 조사 시 호출 수를 아껴 무료 쿼터 내에서 운용한다(검색은 페이지당 최대 건수로, 상세 조회는 정독 대상만).
-    3. 이 스킬에 필요한 상품: **"특허·실용 공개·등록공보"**(검색·서지·도면/전문 — 실용신안 포함), **"특허·실용 행정처리 이력"**(법적 상태 확인용). API 명세는 "API 통합설명서"(plus.kipris.or.kr/portal/main/contents.do?menuNo=210165)에서 서비스별로 확인.
+    3. 이 스킬에 필요한 상품: **"특허·실용 공개·등록공보"**(검색·서지·도면/전문 — 실용신안 포함), **"특허·실용 행정처리 이력"**(법적 상태 확인용). API 명세는 "API 통합설명서"(plus.kipris.or.kr/portal/main/contents.do?menuNo=210165)에서 서비스별로 확인. **주의: 행정처리 이력 API는 동봉 스크립트가 없다** — 법적 상태는 KIPRIS 웹(행정처리 정보)에서 직접 확인하고 출처·확인일을 기록한다.
+  - **쿼터 추적**: 두 스크립트가 스킬 폴더 `kipris_quota.json`에 월별 호출 수를 누적 기록한다(이 머신 기준 하한 추정치). 실행 후 stdout의 "API 호출 N회 / 이번 달 누적 M회"를 확인하고, 800회 초과 경고가 나오면 정독 대상을 줄이거나 KIPRIS Plus 마이페이지에서 실제 잔량을 확인한다.
 - **Google Patents** — 접근 경로 3단 (2026-07-20 실전 검증):
   1. `patents.google.com/xhr/query?url=q%3D<URL인코딩 검색식>` JSON 엔드포인트(비공식 — 스키마 변경·차단 가능). **로컬 IP가 "Sorry" 페이지로 차단되는 경우가 실재**하며, 이때 urllib/curl/WebFetch 재시도·쿨다운은 전부 무효였다.
   2. 차단 시 **claude-in-chrome 실브라우저**(사용자 로그인 세션)가 검증된 우회 경로 — **선택적 의존성**: 도구가 세션에 없으면 건너뛰고, 사용자에게 검색 URL을 제공해 수동 확인을 요청한다. SPA 주의: `get_page_text`는 빈 값을 반환한다 — 로드 대기 + 스크롤 후 `read_page`(접근성 트리)로 읽는다. 결과 URL은 `patents.google.com/?q=...` 형식으로 직접 진입.
