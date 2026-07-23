@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+ <header>
+  <resultCode>00</resultCode>
+  <resultMsg>NORMAL SERVICE.</resultMsg>
+ </header>
+ <body>
+  <items>
+   <item>
+    <applicationNumber>1020990000011</applicationNumber>
+    <inventionTitle>반복 페이지 항목 A</inventionTitle>
+    <applicantName>익명 A</applicantName>
+    <applicationDate>20990101</applicationDate>
+    <openDate>20990701</openDate>
+    <registerStatus>공개</registerStatus>
+    <ipcNumber>B01D 1/00</ipcNumber>
+    <astrtCont>가공 요약 A.</astrtCont>
+   </item>
+   <item>
+    <applicationNumber>1020990000012</applicationNumber>
+    <inventionTitle>반복 페이지 항목 B</inventionTitle>
+    <applicantName>익명 B</applicantName>
+    <applicationDate>20990102</applicationDate>
+    <openDate>20990702</openDate>
+    <registerStatus>공개</registerStatus>
+    <ipcNumber>B01D 2/00</ipcNumber>
+    <astrtCont>가공 요약 B.</astrtCont>
+   </item>
+  </items>
+  <count>
+   <numOfRows>2</numOfRows>
+   <pageNo>1</pageNo>
+   <totalCount>10</totalCount>
+  </count>
+ </body>
+</response>

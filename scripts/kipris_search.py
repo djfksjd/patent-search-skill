@@ -91,7 +91,12 @@ def bump_quota(script_path, n):
         data = json.load(open(path, encoding="utf-8")) if os.path.exists(path) else {}
         month = time.strftime("%Y-%m")
         data[month] = int(data.get(month, 0)) + n
-        json.dump(data, open(path, "w", encoding="utf-8"), indent=1)
+        # 원자적 교체 — 동시 실행 시 파일이 반쯤 쓰인 채 읽히는 것을 막는다
+        # (두 프로세스 간 증가분 유실까지 막지는 못함 — 이 원장은 하한 추정치)
+        tmp = f"{path}.tmp.{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=1)
+        os.replace(tmp, path)
         return data[month]
     except Exception:
         return None

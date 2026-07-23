@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+ <header>
+  <resultCode>00</resultCode>
+  <resultMsg>NORMAL SERVICE.</resultMsg>
+ </header>
+ <body>
+  <items>
+   <item>
+    <applicationNumber>10-2099-0000001</applicationNumber>
+    <inventionTitle>샘플 장치	탭포함
+개행포함 명칭</inventionTitle>
+    <applicantName>테스트 주식회사</applicantName>
+    <applicationDate>20990101</applicationDate>
+    <openDate>20990701</openDate>
+    <registerStatus>공개</registerStatus>
+    <ipcNumber>G06F 99/00</ipcNumber>
+    <astrtCont>익명화된 가공 요약문이다.	탭과
+개행이 섞여 있다.</astrtCont>
+   </item>
+   <item>
+    <applicationNumber>1020990000002</applicationNumber>
+    <inventionTitle>더미 시스템</inventionTitle>
+    <applicantName>가공 발명자</applicantName>
+    <applicationDate>20990202</applicationDate>
+    <openDate>20990802</openDate>
+    <registerStatus>등록</registerStatus>
+    <ipcNumber>H04L 99/99</ipcNumber>
+    <astrtCont>두 번째 익명 가공 요약.</astrtCont>
+   </item>
+  </items>
+  <count>
+   <numOfRows>30</numOfRows>
+   <pageNo>1</pageNo>
+   <totalCount>2</totalCount>
+  </count>
+ </body>
+</response>

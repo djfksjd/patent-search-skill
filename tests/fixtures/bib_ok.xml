@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+ <header>
+  <resultCode>00</resultCode>
+  <resultMsg>NORMAL SERVICE.</resultMsg>
+ </header>
+ <body>
+  <item>
+   <biblioSummaryInfoArray>
+    <biblioSummaryInfo>
+     <applicationNumber>1020990000001</applicationNumber>
+     <inventionTitle>익명화된 샘플 발명</inventionTitle>
+     <applicantName>테스트 주식회사</applicantName>
+     <applicationDate>20990101</applicationDate>
+     <openDate>20990701</openDate>
+     <registerStatus>공개</registerStatus>
+    </biblioSummaryInfo>
+   </biblioSummaryInfoArray>
+   <priorityInfoArray>
+    <priorityInfo>
+     <priorityApplicationNumber>1020980000009</priorityApplicationNumber>
+     <priorityApplicationDate>20980909</priorityApplicationDate>
+    </priorityInfo>
+   </priorityInfoArray>
+   <claimInfoArray>
+    <claimInfo>
+     <claim>청구항 1. 가공 텍스트로 이루어진 첫 번째 청구항.</claim>
+    </claimInfo>
+    <claimInfo>
+     <claim>   </claim>
+    </claimInfo>
+    <claimInfo>
+     <claim>청구항 2. 가공 텍스트로 이루어진 두 번째 청구항.</claim>
+    </claimInfo>
+   </claimInfoArray>
+  </item>
+ </body>
+</response>
