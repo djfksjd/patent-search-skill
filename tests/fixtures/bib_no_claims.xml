@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+ <header>
+  <resultCode>00</resultCode>
+  <resultMsg>NORMAL SERVICE.</resultMsg>
+ </header>
+ <body>
+  <item>
+   <biblioSummaryInfoArray>
+    <biblioSummaryInfo>
+     <applicationNumber>1020990000001</applicationNumber>
+     <inventionTitle>청구항 없는 가공 문헌</inventionTitle>
+     <applicantName>익명 출원인</applicantName>
+     <applicationDate>20990101</applicationDate>
+     <openDate>20990701</openDate>
+     <registerStatus>공개</registerStatus>
+    </biblioSummaryInfo>
+   </biblioSummaryInfoArray>
+   <claimInfoArray>
+    <claimInfo>
+     <claim></claim>
+    </claimInfo>
+   </claimInfoArray>
+  </item>
+ </body>
+</response>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+ <header>
+  <resultCode>00</resultCode>
+  <resultMsg>NORMAL SERVICE.</resultMsg>
+ </header>
+ <body>
+  <items>
+   <item>
+    <applicationNumber>1020990000003</applicationNumber>
+    <inventionTitle>스키마 변경 가정 항목</inventionTitle>
+    <applicantName>익명 출원인</applicantName>
+    <applicationDate>20990303</applicationDate>
+    <openDate>20990903</openDate>
+    <registerStatus>공개</registerStatus>
+    <ipcNumber>A01B 1/00</ipcNumber>
+    <astrtCont>totalCount가 빠진 응답을 흉내낸 가공 데이터.</astrtCont>
+   </item>
+  </items>
+ </body>
+</response>

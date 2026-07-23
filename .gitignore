@@ -8,6 +8,7 @@
 # 조사 산출물/원본 응답 — 조사 대상(발명·검색어)이 드러나므로 커밋 금지
 raw_*.xml
 bib_*.xml
+!tests/fixtures/bib_*.xml
 claims.json
 kipris_results.tsv
 search_manifest.json
