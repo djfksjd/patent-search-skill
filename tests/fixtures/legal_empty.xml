@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+	<header>
+		<resultCode>00</resultCode>
+		<resultMsg>success</resultMsg>
+	</header>
+	<body>
+		<items/>
+	</body>
+</response>

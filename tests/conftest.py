@@ -57,3 +57,24 @@ def claims_mod(monkeypatch):
     mod = load_script("kipris_claims_under_test", "kipris_claims.py")
     yield _prep(mod, monkeypatch)
     sys.modules.pop("kipris_claims_under_test", None)
+
+
+@pytest.fixture()
+def legal_mod(monkeypatch):
+    mod = load_script("kipris_legal_status_under_test", "kipris_legal_status.py")
+    yield _prep(mod, monkeypatch)
+    sys.modules.pop("kipris_legal_status_under_test", None)
+
+
+@pytest.fixture()
+def fto_mod():
+    mod = load_script("fto_gate_under_test", "fto_gate.py")
+    yield mod
+    sys.modules.pop("fto_gate_under_test", None)
+
+
+@pytest.fixture()
+def chart_mod():
+    mod = load_script("claim_chart_validate_under_test", "claim_chart_validate.py")
+    yield mod
+    sys.modules.pop("claim_chart_validate_under_test", None)
