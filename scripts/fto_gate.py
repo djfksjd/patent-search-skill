@@ -24,7 +24,19 @@ claims.json(kipris_claims.py)의 문헌 각각에 대해 legal_status.json(kipri
 import argparse
 import json
 import os
+import re
 import sys
+
+# kipris_legal_status.py 산출 계약과 동기 유지 — 값이 다르면 게이트가 막는다(fail-closed)
+EXPECTED_STATUS_SOURCE = "legStatusST27InfoSearchService/BasicInfo(법적 상태 이력, WIPO ST.27)"
+ST27_EVENT_KEYS = {
+    "keyEventCode", "detailLawEventCode", "detailedEventCode", "stateCode",
+    "previousStageCode", "currentStageCode", "eventIndicatorCode",
+    "nationalEventCode", "eventDate", "rightTypeCode", "rightType",
+    "registrationNumber", "registrationDate", "publicationNumber",
+    "publicationDate", "openNumber", "openingDate", "trialNumber",
+    "demurrerNumber", "supplySerialNumber",
+}
 
 
 def load_json(path, label):
@@ -60,15 +72,22 @@ def classify(appno, legal):
                        f"{rec.get('retrieved_at', '?')} 기준)")
     # 레코드 구조 검증 — kipris_legal_status.py가 쓰는 정상 레코드의 필수 필드가
     # 없거나(수기 편집·타 도구 산출물 혼입) 청구항 분리 계약을 위반하면 판정 불가
-    if not all(isinstance(ev, dict) and ev for ev in events):
-        return False, "legal_events에 비정상 항목(빈/비객체) 포함"
+    if not all(isinstance(ev, dict) and (ev.keys() & ST27_EVENT_KEYS) for ev in events):
+        return False, ("legal_events에 비정상 항목(빈/비객체/ST.27 필드 없음) 포함 — "
+                       "kipris_legal_status.py 산출물이 아닌 것으로 의심")
     if rec.get("current_enforceable_claims") != "unknown":
         return False, ("current_enforceable_claims != 'unknown' — 이력 수집으로 "
                        "현재 청구항을 확정하지 않는다는 계약 위반 레코드")
-    for field in ("schema_version", "status_source", "retrieved_at"):
-        if not rec.get(field):
-            return False, f"정상 레코드 필수 필드 누락: {field}"
-    return True, f"이벤트 {len(events)}건, retrieved_at={rec['retrieved_at']}"
+    if rec.get("schema_version") != 1:
+        return False, (f"schema_version {rec.get('schema_version')!r} 미지원 — "
+                       "이 게이트는 v1 레코드만 검증한다(게이트를 함께 갱신할 것)")
+    if rec.get("status_source") != EXPECTED_STATUS_SOURCE:
+        return False, (f"status_source {rec.get('status_source')!r} — 검증된 소스"
+                       f"({EXPECTED_STATUS_SOURCE})의 산출물이 아님")
+    retrieved = rec.get("retrieved_at")
+    if not (isinstance(retrieved, str) and re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", retrieved)):
+        return False, f"retrieved_at 형식 불량: {retrieved!r} — 수집 시점 확인 불가"
+    return True, f"이벤트 {len(events)}건, retrieved_at={retrieved}"
 
 
 def main():

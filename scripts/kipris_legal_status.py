@@ -232,11 +232,16 @@ def main():
                 out[an] = {"error": err}
                 print(f"{an}: 실패 — {err}", file=sys.stderr)
             if not_subscribed:
-                # 미가입은 전 문헌 공통 — 추가 호출은 쿼터 낭비이므로 중단
+                # 미가입은 전 문헌 공통 — 추가 호출은 쿼터 낭비이므로 중단.
+                # 기존 정상 레코드도 이번 실행에서 재조회하지 못했음을 남긴다 —
+                # 표시 없이 두면 fto_gate가 최신 상태로 오인한다(fail-closed)
                 for rest in targets[targets.index(an) + 1:]:
-                    if not (isinstance(out.get(rest), dict) and out[rest].get("legal_events")):
+                    if isinstance(out.get(rest), dict) and out[rest].get("legal_events"):
+                        out[rest]["last_refresh_error"] = redact(
+                            f"이번 실행에서 조회 생략(미가입) — {ERR31_MSG}")
+                    else:
                         out[rest] = {"error": redact(ERR31_MSG)}
-                        failed += 1
+                    failed += 1
                 break
             time.sleep(0.5)
             continue

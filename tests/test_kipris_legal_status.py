@@ -72,6 +72,29 @@ def test_err31_stops_further_calls(legal_mod, monkeypatch, tmp_path):
     assert "가입 필요" in data[other]["error"]  # 미확인으로 명시 기록(fto_gate가 걸러냄)
 
 
+def test_err31_marks_skipped_existing_records(legal_mod, monkeypatch, tmp_path):
+    """미가입 중단으로 조회를 생략한 기존 정상 레코드에도 last_refresh_error를 남긴다 —
+    표시 없이 두면 fto_gate가 이번 실행에서 확인된 것으로 오인한다(fail-closed)."""
+    import json as _json
+    out = str(tmp_path / "out")
+    other = "1020990000002"
+    os.makedirs(out)
+    existing = {other: {"schema_version": 1, "current_enforceable_claims": "unknown",
+                        "status_source": "legStatusST27InfoSearchService/BasicInfo(법적 상태 이력, WIPO ST.27)",
+                        "retrieved_at": "2099-01-01T00:00:00+0900", "n_events": 1,
+                        "legal_events": [{"keyEventCode": "A10", "eventDate": "20990101"}]}}
+    with open(os.path.join(out, "legal_status.json"), "w", encoding="utf-8") as f:
+        _json.dump(existing, f)
+    with pytest.raises(SystemExit) as e:
+        run_main(legal_mod, monkeypatch, [AN, other, "--out", out],
+                 lambda url: fixture_bytes("legal_err31.xml"))
+    assert e.value.code == 4
+    data = read_legal(out)
+    rec = data[other]
+    assert rec["legal_events"]  # 기존 증거는 보존
+    assert "조회 생략" in rec["last_refresh_error"]  # 그러나 최신성 미확인 표시
+
+
 def test_missing_resultcode_is_schema_error(legal_mod, monkeypatch, tmp_path):
     out = str(tmp_path / "out")
     with pytest.raises(SystemExit) as e:

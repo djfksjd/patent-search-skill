@@ -10,7 +10,7 @@ AN2 = "1020990000002"
 CLAIMS = {AN1: {"title": "가공 문헌 1", "claims": ["청구항 1."]},
           AN2: {"title": "가공 문헌 2", "claims": ["청구항 1."]}}
 LEGAL_OK = {"schema_version": 1, "current_enforceable_claims": "unknown",
-            "status_source": "legStatusST27InfoSearchService/BasicInfo",
+            "status_source": "legStatusST27InfoSearchService/BasicInfo(법적 상태 이력, WIPO ST.27)",
             "legal_events": [{"keyEventCode": "A10", "eventDate": "20990101"}],
             "n_events": 1, "retrieved_at": "2099-01-01T00:00:00+0900"}
 
@@ -116,6 +116,24 @@ def test_claims_contract_violation_rejected(fto_mod, monkeypatch, tmp_path, caps
     assert "계약 위반" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("patch,needle", [
+    ({"schema_version": 999}, "미지원"),
+    ({"status_source": "unverified"}, "산출물이 아님"),
+    ({"retrieved_at": "?"}, "형식 불량"),
+    ({"legal_events": [{"garbage": "x"}]}, "비정상 항목"),
+])
+def test_value_validation_rejects_garbage(fto_mod, monkeypatch, tmp_path, capsys,
+                                          patch, needle):
+    """필드 존재만이 아니라 값까지 검증한다 — 위조·혼입 레코드 fail-closed."""
+    rec = dict(LEGAL_OK, **patch)
+    c = write(tmp_path / "claims.json", {AN1: CLAIMS[AN1]})
+    l = write(tmp_path / "legal_status.json", {AN1: rec})
+    with pytest.raises(SystemExit) as e:
+        run_gate(fto_mod, monkeypatch, c, l)
+    assert e.value.code == 2
+    assert needle in capsys.readouterr().out
+
+
 def test_missing_required_field_rejected(fto_mod, monkeypatch, tmp_path, capsys):
     """status_source 등 필수 필드가 빠진 레코드는 판정 불가."""
     rec = {k: v for k, v in LEGAL_OK.items() if k != "status_source"}
@@ -124,4 +142,4 @@ def test_missing_required_field_rejected(fto_mod, monkeypatch, tmp_path, capsys)
     with pytest.raises(SystemExit) as e:
         run_gate(fto_mod, monkeypatch, c, l)
     assert e.value.code == 2
-    assert "필수 필드 누락: status_source" in capsys.readouterr().out
+    assert "산출물이 아님" in capsys.readouterr().out
