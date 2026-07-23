@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+	<header>
+		<resultCode>00</resultCode>
+		<resultMsg>success</resultMsg>
+	</header>
+	<body>
+		<items>
+			<legalStatusST27Info>
+				<applicationNumber>1020990000001</applicationNumber>
+				<supplySerialNumber>1</supplySerialNumber>
+				<rightTypeCode> </rightTypeCode>
+				<applicationDate>20990101</applicationDate>
+				<openNumber>1020990700001</openNumber>
+				<openingDate>20990701</openingDate>
+				<registrationNumber> </registrationNumber>
+				<registrationDate> </registrationDate>
+				<publicationNumber> </publicationNumber>
+				<publicationDate> </publicationDate>
+				<trialNumber> </trialNumber>
+				<demurrerNumber> </demurrerNumber>
+				<keyEventCode>A10</keyEventCode>
+				<detailLawEventCode>A15</detailLawEventCode>
+				<stateCode>A</stateCode>
+				<previousStageCode>0</previousStageCode>
+				<currentStageCode>1</currentStageCode>
+				<eventIndicatorCode>NAP</eventIndicatorCode>
+				<nationalEventCode>PA0105</nationalEventCode>
+				<eventDate>20990101</eventDate>
+			</legalStatusST27Info>
+			<legalStatusST27Info>
+				<applicationNumber>1020990000001</applicationNumber>
+				<supplySerialNumber>2</supplySerialNumber>
+				<rightTypeCode> </rightTypeCode>
+				<applicationDate>20990101</applicationDate>
+				<openNumber>1020990700001</openNumber>
+				<openingDate>20990701</openingDate>
+				<keyEventCode>E10</keyEventCode>
+				<detailLawEventCode>E13</detailLawEventCode>
+				<stateCode>A</stateCode>
+				<previousStageCode>1</previousStageCode>
+				<currentStageCode>2</currentStageCode>
+				<eventIndicatorCode>NAP</eventIndicatorCode>
+				<nationalEventCode>PE0701</nationalEventCode>
+				<eventDate>20990901</eventDate>
+			</legalStatusST27Info>
+		</items>
+	</body>
+</response>

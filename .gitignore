@@ -9,7 +9,10 @@
 raw_*.xml
 bib_*.xml
 !tests/fixtures/bib_*.xml
+legal_*.xml
+!tests/fixtures/legal_*.xml
 claims.json
+legal_status.json
 kipris_results.tsv
 search_manifest.json
 gp_results.tsv

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+	<header>
+		<resultCode>00</resultCode>
+		<resultMsg>success</resultMsg>
+	</header>
+	<body>
+		<items>
+			<legalStatusST27Info>
+				<applicationNumber>1020990009999</applicationNumber>
+				<supplySerialNumber>1</supplySerialNumber>
+				<keyEventCode>A10</keyEventCode>
+				<detailLawEventCode>A15</detailLawEventCode>
+				<stateCode>A</stateCode>
+				<eventDate>20990101</eventDate>
+			</legalStatusST27Info>
+		</items>
+	</body>
+</response>
