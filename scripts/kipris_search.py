@@ -146,12 +146,20 @@ def main():
     rows, manifest, failed = {}, [], 0
     for i, q in enumerate(queries, 1):
         qid = f"K{i}"
-        collected, total, error = 0, None, None
+        collected, total, error, prev_fp = 0, None, None, None
         for page in range(1, a.max_pages + 1):
             params = urllib.parse.urlencode(
                 {"word": q, "numOfRows": a.rows, "pageNo": page, "ServiceKey": key})
             try:
                 body = fetch(f"{BASE}?{params}")
+            except Exception as e:
+                error = redact(f"{type(e).__name__}: {e}")
+                break
+            # 원본 응답은 검증 실패(스키마 변경) 시에도 근거로 남긴다 — 키 마스킹 후 즉시 저장
+            body = redact_body(body, key)
+            with open(os.path.join(a.out, f"raw_{run_ts}_{qid}_p{page}.xml"), "wb") as f:
+                f.write(body)
+            try:
                 root = ET.fromstring(body)
                 code = root.findtext(".//resultCode")
                 if code is None:
@@ -168,10 +176,14 @@ def main():
             except Exception as e:
                 error = redact(f"{type(e).__name__}: {e}")
                 break
-            body = redact_body(body, key)
-            with open(os.path.join(a.out, f"raw_{run_ts}_{qid}_p{page}.xml"), "wb") as f:
-                f.write(body)
             items = root.findall(".//item")
+            # 서버가 pageNo를 무시하고 같은 페이지를 반복하면 collected가 부풀어
+            # partial=false로 오판된다 — 페이지 지문 반복은 오류로 처리 (fail-closed)
+            page_fp = tuple((it.findtext("applicationNumber") or "") for it in items)
+            if items and page_fp == prev_fp:
+                error = f"repeated_page: p{page}가 직전 페이지와 동일 — 서버 페이지네이션 이상, 수집 중단(partial)"
+                break
+            prev_fp = page_fp
             for it in items:
                 g = lambda t: (it.findtext(t) or "").strip()
                 an = g("applicationNumber").replace("-", "").strip()

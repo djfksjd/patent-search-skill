@@ -165,11 +165,18 @@ def main():
                                    "(미공개/취하 문헌이거나 API 스키마 변경 — 원본 XML 확인)")
         except Exception as e:
             failed += 1
-            out[an] = {"error": redact(f"{type(e).__name__}: {e}")}
-            print(f"{an}: 실패 — {out[an]['error']}", file=sys.stderr)
+            err = redact(f"{type(e).__name__}: {e}")
+            # 기존 정상 레코드를 오류로 덮어쓰지 않는다 (증거 보존) — 오류는 별도 키에 기록
+            if isinstance(out.get(an), dict) and out[an].get("claims"):
+                out[an]["last_refresh_error"] = err
+                print(f"{an}: 재조회 실패 — 기존 정상 레코드 유지 ({err})", file=sys.stderr)
+            else:
+                out[an] = {"error": err}
+                print(f"{an}: 실패 — {err}", file=sys.stderr)
             time.sleep(0.5)
             continue
         out[an] = {
+            "schema_version": 2,  # v2: priority가 {number, date} 객체 목록 (v1: 날짜 문자열 목록)
             "title": title,
             "applicant": (root.findtext(".//applicantName") or "").strip(),
             "regStatus_공보서지기준": root.findtext(".//registerStatus") or "",
