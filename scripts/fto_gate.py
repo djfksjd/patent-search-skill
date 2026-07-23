@@ -8,9 +8,11 @@ claims.json(kipris_claims.py)의 문헌 각각에 대해 legal_status.json(kipri
 법적 상태 확인 여부를 검사한다:
 
 - 상태 확인됨   = legal_status.json에 해당 출원번호의 정상 레코드(legal_events 1건 이상,
-                  error 없음)가 있다 → "FTO 관찰 판정 가능" 목록.
-- 상태 미확인   = legal_status.json 자체가 없거나, 레코드가 없거나, error 레코드다
-                  → "FTO 관찰 높음/낮음 판정 불가 — 상태 미확인" 목록.
+                  error·last_refresh_error 없음, 필수 필드 온전,
+                  current_enforceable_claims=="unknown")가 있다 → "FTO 관찰 판정 가능" 목록.
+- 상태 미확인   = legal_status.json 자체가 없거나, 레코드가 없거나, error 레코드거나,
+                  최근 재조회가 실패했거나(last_refresh_error — 상태 최신성 미확인),
+                  레코드 구조가 계약과 다르다 → "판정 불가 — 상태 미확인" 목록.
 
 종료 코드: 0=전 문헌 상태 확인됨(판정 가능), 2=하나 이상 상태 미확인(또는 입력 불능).
 리포트 작성 시 이 게이트를 통과하지 못한 문헌에는 FTO 관찰 높음/낮음 등 확정 표현을
@@ -51,10 +53,22 @@ def classify(appno, legal):
     if not isinstance(events, list) or not events:
         return False, "legal_events 없음/0건"
     if rec.get("last_refresh_error"):
-        return True, (f"이벤트 {len(events)}건 (경고: 최근 재조회 실패 — "
-                      f"{rec['last_refresh_error']}; retrieved_at="
-                      f"{rec.get('retrieved_at', '?')} 기준)")
-    return True, f"이벤트 {len(events)}건, retrieved_at={rec.get('retrieved_at', '?')}"
+        # 이력이 있어도 최근 재조회가 실패했으면 상태가 최신인지 알 수 없다 —
+        # 법적 상태는 시점 민감(등록·소멸)이므로 판정 불가로 내린다
+        return False, (f"최근 재조회 실패 — 상태가 최신인지 미확인 "
+                       f"({rec['last_refresh_error']}; retrieved_at="
+                       f"{rec.get('retrieved_at', '?')} 기준)")
+    # 레코드 구조 검증 — kipris_legal_status.py가 쓰는 정상 레코드의 필수 필드가
+    # 없거나(수기 편집·타 도구 산출물 혼입) 청구항 분리 계약을 위반하면 판정 불가
+    if not all(isinstance(ev, dict) and ev for ev in events):
+        return False, "legal_events에 비정상 항목(빈/비객체) 포함"
+    if rec.get("current_enforceable_claims") != "unknown":
+        return False, ("current_enforceable_claims != 'unknown' — 이력 수집으로 "
+                       "현재 청구항을 확정하지 않는다는 계약 위반 레코드")
+    for field in ("schema_version", "status_source", "retrieved_at"):
+        if not rec.get(field):
+            return False, f"정상 레코드 필수 필드 누락: {field}"
+    return True, f"이벤트 {len(events)}건, retrieved_at={rec['retrieved_at']}"
 
 
 def main():

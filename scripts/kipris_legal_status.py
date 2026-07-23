@@ -143,7 +143,12 @@ def parse_events(root, an):
     events = []
     for item in root.findall(".//legalStatusST27Info"):
         resp_an = (item.findtext("applicationNumber") or "").replace("-", "").strip()
-        if resp_an and resp_an != an:
+        if not resp_an:
+            # 실응답은 이벤트마다 applicationNumber를 싣는다(2026-07-23 실호출 확인) —
+            # 없으면 요청 문헌 귀속을 확인할 수 없으므로 fail-closed
+            raise RuntimeError("schema_error: 이벤트에 applicationNumber 없음 — "
+                               "요청 문헌 귀속 확인 불가(API 스키마 변경 의심)")
+        if resp_an != an:
             raise RuntimeError(f"응답 출원번호 불일치: 요청 {an} / 응답 {resp_an} — "
                                "API 동작 변경 의심")
         ev = {}

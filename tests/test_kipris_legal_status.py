@@ -93,6 +93,20 @@ def test_response_appno_mismatch_is_error(legal_mod, monkeypatch, tmp_path):
     assert "legal_events" not in rec  # 성공 레코드로 위장하지 않음
 
 
+def test_missing_response_appno_is_error(legal_mod, monkeypatch, tmp_path):
+    """이벤트에 applicationNumber가 없으면 요청 문헌 귀속 불가 — fail-closed."""
+    xml = fixture_bytes("legal_ok.xml").replace(
+        b"<applicationNumber>1020990000001</applicationNumber>",
+        b"<applicationNumber></applicationNumber>")
+    out = str(tmp_path / "out")
+    with pytest.raises(SystemExit) as e:
+        run_main(legal_mod, monkeypatch, [AN, "--out", out], lambda url: xml)
+    assert e.value.code == 1
+    rec = read_legal(out)[AN]
+    assert "error" in rec and "귀속" in rec["error"]
+    assert "legal_events" not in rec
+
+
 def test_zero_events_is_failure(legal_mod, monkeypatch, tmp_path):
     """0건을 '법적 상태 확인됨'으로 오인하지 않는다 — fail-closed."""
     out = str(tmp_path / "out")
