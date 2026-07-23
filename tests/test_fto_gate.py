@@ -118,9 +118,12 @@ def test_claims_contract_violation_rejected(fto_mod, monkeypatch, tmp_path, caps
 
 @pytest.mark.parametrize("patch,needle", [
     ({"schema_version": 999}, "미지원"),
+    ({"schema_version": True}, "미지원"),  # bool은 int 하위형 — True == 1 우회 차단
     ({"status_source": "unverified"}, "산출물이 아님"),
     ({"retrieved_at": "?"}, "형식 불량"),
+    ({"retrieved_at": "2026-99-99T99:99garbage"}, "형식 불량"),  # 달력 검증
     ({"legal_events": [{"garbage": "x"}]}, "비정상 항목"),
+    ({"legal_events": [{"keyEventCode": None}]}, "비정상 항목"),  # 키만 있고 값 없음
 ])
 def test_value_validation_rejects_garbage(fto_mod, monkeypatch, tmp_path, capsys,
                                           patch, needle):

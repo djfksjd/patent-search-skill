@@ -22,9 +22,9 @@ claims.json(kipris_claims.py)의 문헌 각각에 대해 legal_status.json(kipri
 별개 문제다(legal_status.json의 current_enforceable_claims="unknown" 유지 계약).
 """
 import argparse
+import datetime
 import json
 import os
-import re
 import sys
 
 # kipris_legal_status.py 산출 계약과 동기 유지 — 값이 다르면 게이트가 막는다(fail-closed)
@@ -72,20 +72,31 @@ def classify(appno, legal):
                        f"{rec.get('retrieved_at', '?')} 기준)")
     # 레코드 구조 검증 — kipris_legal_status.py가 쓰는 정상 레코드의 필수 필드가
     # 없거나(수기 편집·타 도구 산출물 혼입) 청구항 분리 계약을 위반하면 판정 불가
-    if not all(isinstance(ev, dict) and (ev.keys() & ST27_EVENT_KEYS) for ev in events):
-        return False, ("legal_events에 비정상 항목(빈/비객체/ST.27 필드 없음) 포함 — "
-                       "kipris_legal_status.py 산출물이 아닌 것으로 의심")
+    def valid_event(ev):
+        return isinstance(ev, dict) and any(
+            k in ST27_EVENT_KEYS and isinstance(v, str) and v.strip()
+            for k, v in ev.items())
+    if not all(valid_event(ev) for ev in events):
+        return False, ("legal_events에 비정상 항목(빈/비객체/유효한 ST.27 필드 값 없음) "
+                       "포함 — kipris_legal_status.py 산출물이 아닌 것으로 의심")
     if rec.get("current_enforceable_claims") != "unknown":
         return False, ("current_enforceable_claims != 'unknown' — 이력 수집으로 "
                        "현재 청구항을 확정하지 않는다는 계약 위반 레코드")
-    if rec.get("schema_version") != 1:
-        return False, (f"schema_version {rec.get('schema_version')!r} 미지원 — "
+    sv = rec.get("schema_version")
+    # bool은 int의 하위형(True == 1)이라 명시적으로 배제한다
+    if not isinstance(sv, int) or isinstance(sv, bool) or sv != 1:
+        return False, (f"schema_version {sv!r} 미지원 — "
                        "이 게이트는 v1 레코드만 검증한다(게이트를 함께 갱신할 것)")
     if rec.get("status_source") != EXPECTED_STATUS_SOURCE:
         return False, (f"status_source {rec.get('status_source')!r} — 검증된 소스"
                        f"({EXPECTED_STATUS_SOURCE})의 산출물이 아님")
     retrieved = rec.get("retrieved_at")
-    if not (isinstance(retrieved, str) and re.match(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", retrieved)):
+    if not isinstance(retrieved, str):
+        return False, f"retrieved_at 형식 불량: {retrieved!r} — 수집 시점 확인 불가"
+    try:
+        # 달력 검증까지 수행(정규식은 2026-99-99를 통과시킨다) — 앞 16자만 파싱
+        datetime.datetime.strptime(retrieved[:16], "%Y-%m-%dT%H:%M")
+    except ValueError:
         return False, f"retrieved_at 형식 불량: {retrieved!r} — 수집 시점 확인 불가"
     return True, f"이벤트 {len(events)}건, retrieved_at={retrieved}"
 
