@@ -20,6 +20,11 @@ claims.json(kipris_claims.py)의 문헌 각각에 대해 legal_status.json(kipri
 
 주의: 이 게이트는 "법적 상태 이력을 확인했는가"만 검사한다. 현재 유효 청구항 확정은
 별개 문제다(legal_status.json의 current_enforceable_claims="unknown" 유지 계약).
+
+선택: --expansion <expansion.json>(kipris_expand.py 산출)을 주면 **패밀리 커버리지**를 함께
+표기한다. family 축 status가 complete가 아니면(unknown/partial/failed/unsupported)
+"패밀리 커버리지 미확인 — 패밀리 전체 FTO 낮음·해외 권리 없음 결론 보류"를 출력한다.
+이는 KR 문헌 단위 게이트 판정(위)을 바꾸지 않는다 — 별개 축의 보류 표기다(계약 8).
 """
 import argparse
 import datetime
@@ -101,11 +106,36 @@ def classify(appno, legal):
     return True, f"이벤트 {len(events)}건, retrieved_at={retrieved}"
 
 
+def report_family_coverage(expansion_path):
+    """expansion.json의 family 축 status를 읽어 커버리지 보류를 표기(계약 8).
+
+    family가 complete가 아니면(unknown/partial/failed 등) 패밀리 전체 FTO 결론을 보류한다.
+    fail-closed: 파일 없음/파싱 실패/스키마 미달도 '미확인'으로 처리한다. KR 문헌 단위
+    게이트 판정은 바꾸지 않는다."""
+    data, err = load_json(expansion_path, "expansion.json")
+    if err:
+        print(f"== 패밀리 커버리지: 미확인 (expansion.json 불능: {err}) — "
+              "패밀리 전체 FTO 결론 보류 ==")
+        return
+    axis = (data.get("axes") or {}).get("family") if isinstance(data, dict) else None
+    status = axis.get("status") if isinstance(axis, dict) else None
+    if status == "complete":
+        print(f"== 패밀리 커버리지: complete (후보 {axis.get('n_candidates', '?')}건) — "
+              "그래도 발견≠증거: 각 패밀리 문헌은 공식 원문으로 재확인 ==")
+        return
+    print(f"== 패밀리 커버리지 미확인 (family status={status!r}) — "
+          "'패밀리 전체 FTO 낮음'·'해외 권리 없음' 결론 보류 ==")
+    if isinstance(axis, dict) and axis.get("reason"):
+        print(f"   사유: {axis['reason']}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--claims", required=True, help="kipris_claims.py 출력 claims.json")
     ap.add_argument("--legal", required=True,
                     help="kipris_legal_status.py 출력 legal_status.json")
+    ap.add_argument("--expansion", help="(선택) kipris_expand.py 출력 expansion.json — "
+                    "패밀리 커버리지 미확인 시 FTO 결론 보류 표기")
     a = ap.parse_args()
 
     claims, err = load_json(a.claims, "claims.json")
@@ -119,6 +149,10 @@ def main():
     legal, err = load_json(a.legal, "legal_status.json")
     if err:
         print(f"경고: {err} — 전 문헌 상태 미확인 처리", file=sys.stderr)
+
+    # 선택: 패밀리 커버리지 표기(KR 문헌 단위 게이트와 별개 — 판정을 바꾸지 않는다)
+    if a.expansion:
+        report_family_coverage(a.expansion)
 
     verified, unverified = [], []
     for appno in sorted(claims):

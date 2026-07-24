@@ -51,13 +51,14 @@ Python 3 표준 라이브러리만 사용합니다(추가 설치 불필요).
 | `scripts/kipris_search.py` | 자유검색 일괄 실행(페이지네이션) → 중복 제거 TSV + 원본 XML + `search_manifest.json` | `python3 scripts/kipris_search.py "스포츠 영상 하이라이트 자동 생성" "선수 추적 개인별 영상" --rows 30 --max-pages 3 --out ./work` |
 | `scripts/kipris_claims.py` | 출원번호별 서지+청구항 전문 → JSON + 원본 XML | `python3 scripts/kipris_claims.py 1020260075385 10-2024-0067638 --out ./work` |
 | `scripts/kipris_legal_status.py` | 출원번호별 법적 상태 이력(WIPO ST.27 행정 이벤트) → `legal_status.json` + 원본 XML. 상품 미가입 시 종료 코드 4 | `python3 scripts/kipris_legal_status.py 1020260075385 --out ./work` |
-| `scripts/fto_gate.py` | FTO 게이트(오프라인) — 법적 상태 미확인 문헌을 "판정 불가"로 나열, 미확인이 있으면 종료 코드 2 | `python3 scripts/fto_gate.py --claims ./work/claims.json --legal ./work/legal_status.json` |
+| `scripts/kipris_expand.py` | 확장 축(로드맵 #8) — seed 서지상세 재사용으로 패밀리 + 후방 인용(priorArt) 1-hop 확장 후보 + 축별 status → `expansion.json`. 상한·쿼터 예약·동시 실행 lock. cited_by는 unsupported 고정, 예산 도달 시 종료 코드 3 | `python3 scripts/kipris_expand.py 1020260075385 10-2024-0067638 --out ./work` |
+| `scripts/fto_gate.py` | FTO 게이트(오프라인) — 법적 상태 미확인 문헌을 "판정 불가"로 나열, 미확인이 있으면 종료 코드 2. `--expansion`으로 패밀리 커버리지 미확인 시 결론 보류 표기 | `python3 scripts/fto_gate.py --claims ./work/claims.json --legal ./work/legal_status.json --expansion ./work/expansion.json` |
 | `scripts/claim_chart_validate.py` | claim chart JSON을 `references/claim_chart_schema.json`(v1)으로 검증 — E/I/P 근거 누락 등 위반 나열, 위반 시 종료 코드 1 | `python3 scripts/claim_chart_validate.py ./work/chart.json` |
 
 동작 원칙:
 
 - **HTTPS 고정** 호출이며, 키는 `KIPRIS_KEY` 환경변수 또는 스킬 폴더 `.env`에서 읽고 **어떤 출력·저장 파일에도 남기지 않습니다**(에러 메시지·원본 XML까지 마스킹). 키를 명령행 인자나 URL에 직접 넣지 마세요.
-- **종료 코드**: 0 = 전건 성공, 1 = 하나 이상 실패, 4 = 법적 상태 이력 상품 미가입(`kipris_legal_status.py`), 2 = FTO 게이트 미통과(`fto_gate.py`). 검색이 전체 건수를 다 못 담으면(에러로 중단된 경우 포함) 매니페스트에 `partial=true`로 표시됩니다 — 부분 수집을 완전 수집으로 오인하지 않도록 설계했습니다.
+- **종료 코드**: 0 = 전건 성공, 1 = 하나 이상 실패, 4 = 법적 상태 이력 상품 미가입(`kipris_legal_status.py`), 2 = FTO 게이트 미통과(`fto_gate.py`), 3 = 예산/쿼터 도달 조기 종료(`kipris_expand.py` — 부분 결과 저장됨). 검색이 전체 건수를 다 못 담으면(에러로 중단된 경우 포함) 매니페스트에 `partial=true`로 표시됩니다 — 부분 수집을 완전 수집으로 오인하지 않도록 설계했습니다.
 - **fail-closed**: 응답에 `resultCode`/`totalCount`가 없으면(API 스키마 변경 신호) 0건 성공이 아니라 해당 검색식 실패로 처리합니다. 429/5xx/타임아웃은 지수 백오프로 최대 2회 재시도합니다.
 - **증거 보존**: `kipris_search.py`는 기존 산출물이 있는 `--out` 폴더에 쓰기를 거부하고(`--force`로만 강제), 원본 XML 파일명에 실행 시각을 포함합니다. `kipris_claims.py`는 기존 `claims.json`에 병합합니다.
 - `claims.json`의 청구항은 **공보 서지 기준**이라 최신 보정·정정·심판 결과가 반영되지 않을 수 있습니다(`current_enforceable_claims: "unknown"`). FTO 용도로 쓰기 전 KIPRIS 웹에서 현재 청구항을 재확인하세요.

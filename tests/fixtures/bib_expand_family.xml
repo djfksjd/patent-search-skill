@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+ <header>
+  <resultCode>00</resultCode>
+  <resultMsg>NORMAL SERVICE.</resultMsg>
+ </header>
+ <body>
+  <item>
+   <biblioSummaryInfoArray>
+    <biblioSummaryInfo>
+     <applicationNumber>1020990000002</applicationNumber>
+     <inventionTitle>익명화된 샘플 발명 B (패밀리 보유 가정)</inventionTitle>
+     <applicantName>테스트 주식회사</applicantName>
+     <applicationDate>20990202</applicationDate>
+     <registerStatus>등록</registerStatus>
+    </biblioSummaryInfo>
+   </biblioSummaryInfoArray>
+   <familyInfoArray>
+    <familyInfo>
+     <applicationNumber>US2098765432 A1</applicationNumber>
+     <countryCode>US</countryCode>
+    </familyInfo>
+    <familyInfo>
+     <applicationNumber>1020880000009</applicationNumber>
+     <countryCode>KR</countryCode>
+    </familyInfo>
+   </familyInfoArray>
+   <priorArtDocumentsInfoArray>
+   </priorArtDocumentsInfoArray>
+  </item>
+ </body>
+</response>

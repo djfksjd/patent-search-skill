@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<response>
+ <header>
+  <resultCode>00</resultCode>
+  <resultMsg>NORMAL SERVICE.</resultMsg>
+ </header>
+ <body>
+  <item>
+   <biblioSummaryInfoArray>
+    <biblioSummaryInfo>
+     <applicationNumber>1020990000001</applicationNumber>
+     <inventionTitle>익명화된 샘플 발명 A</inventionTitle>
+     <applicantName>테스트 주식회사</applicantName>
+     <applicationDate>20990101</applicationDate>
+     <openDate>20990701</openDate>
+     <registerStatus>공개</registerStatus>
+    </biblioSummaryInfo>
+   </biblioSummaryInfoArray>
+   <familyInfoArray>
+    <familyInfo/>
+   </familyInfoArray>
+   <priorArtDocumentsInfoArray>
+    <priorArtDocumentsInfo>
+     <documentsNumber>KR1020210147858 A</documentsNumber>
+     <examinerQuotationFlag>Y</examinerQuotationFlag>
+    </priorArtDocumentsInfo>
+    <priorArtDocumentsInfo>
+     <documentsNumber>KR1020200011122 A</documentsNumber>
+     <examinerQuotationFlag></examinerQuotationFlag>
+    </priorArtDocumentsInfo>
+    <priorArtDocumentsInfo>
+     <documentsNumber>US2019123456 A1</documentsNumber>
+     <examinerQuotationFlag>Y</examinerQuotationFlag>
+    </priorArtDocumentsInfo>
+   </priorArtDocumentsInfoArray>
+  </item>
+ </body>
+</response>
