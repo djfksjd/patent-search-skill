@@ -14,8 +14,11 @@
 
 출력: 위반 목록 전체(하나만 보고하고 멈추지 않는다). 종료 코드: 0=통과, 1=위반/입력 불능.
 """
+import datetime
 import json
+import re
 import sys
+import urllib.parse
 
 VALUES = {"E", "I", "P", "N", "?"}
 CITATION_FIELDS = ("document_number", "locator", "quote", "url", "verified_at")
@@ -25,13 +28,41 @@ def nonempty_str(v):
     return isinstance(v, str) and v.strip() != ""
 
 
+def valid_url(v):
+    """http(s) + 호스트 필수 — javascript:·data:·'https://'(호스트 없음) 배제."""
+    if not nonempty_str(v):
+        return False
+    try:
+        p = urllib.parse.urlsplit(v.strip())
+    except ValueError:
+        return False
+    return p.scheme in ("http", "https") and bool(p.netloc)
+
+
+def valid_date(v):
+    """정확히 YYYY-MM-DD(하이픈 구분) 달력 검증 — 잡값('...TRAILING')과 compact
+    '20260724'(fromisoformat이 3.11+에서 허용)도 거부한다(Codex #10)."""
+    if not nonempty_str(v):
+        return False
+    s = v.strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return False
+    try:
+        datetime.date.fromisoformat(s)
+        return True
+    except ValueError:
+        return False
+
+
 def validate(chart):
     """위반 문자열 목록을 반환한다(빈 목록=통과)."""
     v = []
     if not isinstance(chart, dict):
         return ["최상위가 JSON 객체가 아님"]
-    if chart.get("schema_version") != 1:
-        v.append(f"schema_version은 1이어야 함 (현재: {chart.get('schema_version')!r})")
+    sv = chart.get("schema_version")
+    # bool은 int의 하위형(True==1)이라 명시적으로 배제한다(Codex #10)
+    if not isinstance(sv, int) or isinstance(sv, bool) or sv != 1:
+        v.append(f"schema_version은 정수 1이어야 함 (현재: {sv!r})")
     if chart.get("chart_type") not in ("patentability", "fto"):
         v.append(f"chart_type은 patentability|fto 중 하나 (현재: {chart.get('chart_type')!r})")
 
@@ -53,6 +84,7 @@ def validate(chart):
             if not nonempty_str(r.get("limitation")):
                 v.append(f"rows[{i}].limitation 누락/빈 값")
 
+    col_docnum = {}  # col id → document_number (셀 citation의 문헌번호 대조용)
     cols = chart.get("columns")
     if not isinstance(cols, list) or not cols:
         v.append("columns가 비어있음/누락")
@@ -69,6 +101,8 @@ def validate(chart):
                 col_ids.add(c["id"])
             if not nonempty_str(c.get("document_number")):
                 v.append(f"columns[{i}].document_number 누락/빈 값")
+            elif nonempty_str(c.get("id")):
+                col_docnum[c["id"]] = c["document_number"].strip()
 
     cells = chart.get("cells")
     if not isinstance(cells, list) or not cells:
@@ -96,6 +130,24 @@ def validate(chart):
                 for f in CITATION_FIELDS:
                     if not nonempty_str(cit.get(f)):
                         v.append(f"{where}: citation.{f} 누락/빈 값")
+                # 특허성 차트에서만 citation 문헌번호를 **열의 문헌**과 대조한다 —
+                # 열이 선행문헌이기 때문. FTO 차트는 열이 '내 실시 형태'라 문헌번호가
+                # 아니므로 이 검사를 적용하면 정상 FTO 차트를 오검한다(Codex #10 회귀).
+                if chart.get("chart_type") == "patentability":
+                    col_doc = col_docnum.get(cell.get("column"))
+                    if col_doc and nonempty_str(cit.get("document_number")) \
+                            and cit["document_number"].strip() != col_doc:
+                        v.append(f"{where}: citation.document_number "
+                                 f"({cit['document_number']!r})이 열 문헌({col_doc!r})과 불일치")
+                # URL은 http(s)만 — javascript:·data: 등 위험/비문헌 스킴 배제
+                if cit.get("url") is not None and not valid_url(cit.get("url")):
+                    v.append(f"{where}: citation.url이 http(s) 형식이 아님 "
+                             f"({cit.get('url')!r})")
+                # verified_at은 YYYY-MM-DD 달력 검증
+                if cit.get("verified_at") is not None \
+                        and not valid_date(cit.get("verified_at")):
+                    v.append(f"{where}: citation.verified_at이 YYYY-MM-DD가 아님 "
+                             f"({cit.get('verified_at')!r})")
         if val == "I" and not nonempty_str(cell.get("inherency_rationale")):
             v.append(f"{where}: value=I — inherency_rationale 필수(내재성 논거)")
     return v

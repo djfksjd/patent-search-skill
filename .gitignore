@@ -20,6 +20,7 @@ kipris_results.tsv
 search_manifest.json
 gp_results.tsv
 kipris_quota.json
+*.lock
 patent-search-*.md
 queries*.txt
 appnos*.txt

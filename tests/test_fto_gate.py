@@ -7,8 +7,16 @@ import pytest
 AN1 = "1020990000001"
 AN2 = "1020990000002"
 
-CLAIMS = {AN1: {"title": "가공 문헌 1", "claims": ["청구항 1."]},
-          AN2: {"title": "가공 문헌 2", "claims": ["청구항 1."]}}
+# kipris_claims.py 정품 레코드 형태 — 게이트가 claims 레코드 자체도 검증하므로
+# schema_version=2·claims_source·current_enforceable_claims=unknown이 필요하다.
+def _claims_rec(title):
+    return {"schema_version": 2, "title": title, "claims": ["청구항 1."],
+            "current_enforceable_claims": "unknown",
+            "claims_source": "getBibliographyDetailInfoSearch(공보 서지)",
+            "n_claims": 1, "retrieved_at": "2099-01-01T00:00:00+0900"}
+
+
+CLAIMS = {AN1: _claims_rec("가공 문헌 1"), AN2: _claims_rec("가공 문헌 2")}
 LEGAL_OK = {"schema_version": 1, "current_enforceable_claims": "unknown",
             "status_source": "legStatusST27InfoSearchService/BasicInfo(법적 상태 이력, WIPO ST.27)",
             "legal_events": [{"keyEventCode": "A10", "eventDate": "20990101"}],
@@ -38,7 +46,8 @@ def test_all_verified_exit_0(fto_mod, monkeypatch, tmp_path, capsys):
 
 
 def _expansion(family_status, n=0, seeds=(AN1, AN2), tool="kipris_expand",
-               schema_version=1, source="getBibliographyDetailInfoSearch: familyInfoArray"):
+               schema_version=1,
+               source="getBibliographyDetailInfoSearch: familyInfoArray/familyInfo"):
     """정품 kipris_expand 산출물 형태(NO-GO #4 검증 통과용 필수 필드 포함)."""
     rec = {"tool": tool, "schema_version": schema_version, "seeds": list(seeds),
            "axes": {"family": {"status": family_status, "n_candidates": n,

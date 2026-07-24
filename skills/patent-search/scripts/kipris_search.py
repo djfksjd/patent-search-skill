@@ -21,7 +21,9 @@
 import argparse, csv, json, os, re, sys, time
 import urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
+import kipris_http
 
+KIPRIS_HOSTS = ("plus.kipris.or.kr",)
 BASE = "https://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/getWordSearch"
 ERR = {"30": "등록되지 않은 키 — plus.kipris.or.kr 마이페이지에서 APIKEY 확인",
        "31": "상품 이용기간 비활성 — '특허·실용 공개·등록공보' 상품 신청/기간 확인"}
@@ -42,22 +44,12 @@ def load_key(script_path):
 
 
 def make_redactor(key):
-    variants = {key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-                urllib.parse.quote_plus(key)}
-    def redact(text):
-        for v in variants:
-            if v:
-                text = text.replace(v, "[REDACTED]")
-        return text
-    return redact
+    # 대소문자 혼합 %XX 인코딩까지 잡는 정규식 마스킹(kipris_http.make_redact)
+    return kipris_http.make_redact(key)
 
 
 def redact_body(body, key):
-    for v in (key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-              urllib.parse.quote_plus(key)):
-        if v:
-            body = body.replace(v.encode(), b"[REDACTED]")
-    return body
+    return kipris_http.make_redact_bytes(key)(body)
 
 
 def fetch(url, tries=3):
@@ -66,10 +58,10 @@ def fetch(url, tries=3):
     for _ in range(tries):
         CALLS[0] += 1
         try:
-            body = urllib.request.urlopen(url, timeout=30).read(MAX_BODY)
-            if len(body) >= MAX_BODY:
-                raise RuntimeError("응답이 20MB 한도에서 절단됨 — --rows 축소 필요")
-            return body
+            # 리다이렉트 차단·홉별 호스트 검증(키가 쿼리에 실리므로 유출 방지)
+            return kipris_http.open_validated(url, 30, KIPRIS_HOSTS, MAX_BODY)
+        except kipris_http.RedirectBlocked:
+            raise  # 외부 호스트 유출 시도 — 재시도 없이 즉시 실패
         except urllib.error.HTTPError as e:
             if e.code == 429 or e.code >= 500:
                 last = e
@@ -189,11 +181,13 @@ def main():
                 error = f"repeated_page: p{page}가 직전 페이지와 동일 — 서버 페이지네이션 이상, 수집 중단(partial)"
                 break
             prev_fp = page_fp
+            usable = 0
             for it in items:
                 g = lambda t: (it.findtext(t) or "").strip()
                 an = g("applicationNumber").replace("-", "").strip()
                 if not an:
                     continue
+                usable += 1
                 if an in rows:
                     if qid not in rows[an]["queries"].split(","):
                         rows[an]["queries"] += "," + qid
@@ -204,7 +198,16 @@ def main():
                         appDate=g("applicationDate"), openDate=g("openDate"),
                         regStatus=clean(g("registerStatus")), ipc=clean(g("ipcNumber")),
                         queries=qid, abstract_excerpt=clean(g("astrtCont"))[:300])
-            collected += len(items)
+            # items가 있는데 applicationNumber를 가진 항목이 하나도 없으면 스키마
+            # 이상/차단 신호 — collected만 늘려 partial=false로 위장되면 0건을
+            # '선행기술 없음'으로 오인한다(Codex #1). fail-closed로 중단(partial).
+            if items and usable == 0:
+                error = ("schema_error: item에 applicationNumber가 없음 — API 스키마 "
+                         "변경/차단 의심, 원본 XML 확인")
+                break
+            # usable(파싱 성공)만 센다 — len(items)를 세면 일부 항목이 파싱 안 돼도
+            # collected가 total에 도달해 partial=false로 위장된다(Codex #1 혼합 페이지).
+            collected += usable
             if collected >= total or not items:
                 break
             time.sleep(0.5)

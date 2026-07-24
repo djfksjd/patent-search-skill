@@ -18,6 +18,10 @@ TESTS_DIR = pathlib.Path(__file__).resolve().parent
 SCRIPTS_DIR = TESTS_DIR.parent / "skills" / "patent-search" / "scripts"
 FIXTURES_DIR = TESTS_DIR / "fixtures"
 
+# 스크립트끼리 `import kipris_http` 하므로 스크립트 폴더를 경로에 올린다
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
 FAKE_KEY = "TEST-fake key+val/==NOT-REAL"  # quote/quote_plus 변이가 서로 달라지는 문자 포함
 
 
@@ -40,6 +44,9 @@ def _no_network(*args, **kwargs):
 def _prep(mod, monkeypatch):
     monkeypatch.setenv("KIPRIS_KEY", FAKE_KEY)
     monkeypatch.setattr(mod.urllib.request, "urlopen", _no_network)
+    # 스크립트가 kipris_http.open_validated로 나가므로 그 오프너도 차단(안전망)
+    if hasattr(mod, "kipris_http"):
+        monkeypatch.setattr(mod.kipris_http._OPENER, "open", _no_network)
     monkeypatch.setattr(mod.time, "sleep", lambda *_: None)
     mod.CALLS[0] = 0
     return mod
