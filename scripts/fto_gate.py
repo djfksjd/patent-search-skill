@@ -20,6 +20,11 @@ claims.json(kipris_claims.py)의 문헌 각각에 대해 legal_status.json(kipri
 
 주의: 이 게이트는 "법적 상태 이력을 확인했는가"만 검사한다. 현재 유효 청구항 확정은
 별개 문제다(legal_status.json의 current_enforceable_claims="unknown" 유지 계약).
+
+선택: --expansion <expansion.json>(kipris_expand.py 산출)을 주면 **패밀리 커버리지**를 함께
+표기한다. family 축 status가 complete가 아니면(unknown/partial/failed/unsupported)
+"패밀리 커버리지 미확인 — 패밀리 전체 FTO 낮음·해외 권리 없음 결론 보류"를 출력한다.
+이는 KR 문헌 단위 게이트 판정(위)을 바꾸지 않는다 — 별개 축의 보류 표기다(계약 8).
 """
 import argparse
 import datetime
@@ -101,11 +106,75 @@ def classify(appno, legal):
     return True, f"이벤트 {len(events)}건, retrieved_at={retrieved}"
 
 
+EXPECTED_EXPANSION_TOOL = "kipris_expand"
+EXPECTED_EXPANSION_SCHEMA = 1
+
+
+def validate_expansion(data, claims_appnos):
+    """expansion.json이 **현재 claims에 대한** 정품 kipris_expand 산출물인지 검증(NO-GO #4).
+
+    (verified_complete: bool, note: str). fail-closed: 위조·타 특허 expansion·스키마
+    미달은 전부 거부한다. 아래를 모두 만족할 때만 family=complete를 인정한다:
+      (a) tool == kipris_expand, schema_version == 1
+      (b) seeds가 리스트이고 현재 claims의 출원번호 집합을 **포함**(claims ⊆ seeds)
+      (c) family 축 source 존재 + status == complete
+    """
+    if not isinstance(data, dict):
+        return False, "expansion.json 형식 오류: 최상위가 객체가 아님"
+    if data.get("tool") != EXPECTED_EXPANSION_TOOL:
+        return False, f"tool={data.get('tool')!r} — kipris_expand 산출물이 아님(위조 의심)"
+    sv = data.get("schema_version")
+    if not isinstance(sv, int) or isinstance(sv, bool) or sv != EXPECTED_EXPANSION_SCHEMA:
+        return False, f"schema_version={sv!r} 미지원 — 게이트를 함께 갱신할 것"
+    seeds = data.get("seeds")
+    if not isinstance(seeds, list) or not all(isinstance(s, str) for s in seeds):
+        return False, "seeds 형식 불량 — 확장 대상 문헌 집합 확인 불가"
+    seed_set = {s.replace("-", "").strip() for s in seeds}
+    claim_set = {a.replace("-", "").strip() for a in claims_appnos}
+    missing = claim_set - seed_set
+    if missing:
+        return False, (f"seeds가 현재 claims를 포괄하지 않음(누락 {len(missing)}건: "
+                       f"{sorted(missing)[:3]}…) — 다른 조사의 expansion이거나 seed 미포함")
+    axis = (data.get("axes") or {}).get("family")
+    if not isinstance(axis, dict):
+        return False, "family 축 없음"
+    if not axis.get("source"):
+        return False, "family 축 source 없음 — 산출물 신뢰 불가"
+    if axis.get("status") != "complete":
+        return False, f"family status={axis.get('status')!r}"
+    return True, f"후보 {axis.get('n_candidates', '?')}건"
+
+
+def report_family_coverage(expansion_path, claims_appnos):
+    """expansion.json을 현재 claims와 대조해 패밀리 커버리지를 표기(계약 8 + NO-GO #4).
+
+    family가 complete로 **검증**되지 않으면 패밀리 전체 FTO 결론을 보류한다. fail-closed:
+    파일 없음/파싱 실패/위조/타 특허 expansion/스키마 미달은 전부 '미확인'. KR 문헌 단위
+    게이트 판정은 바꾸지 않는다."""
+    data, err = load_json(expansion_path, "expansion.json")
+    if err:
+        print(f"== 패밀리 커버리지: 미확인 (expansion.json 불능: {err}) — "
+              "패밀리 전체 FTO 결론 보류 ==")
+        return
+    ok, note = validate_expansion(data, claims_appnos)
+    if ok:
+        print(f"== 패밀리 커버리지: complete ({note}) — "
+              "그래도 발견≠증거: 각 패밀리 문헌은 공식 원문으로 재확인 ==")
+        return
+    print(f"== 패밀리 커버리지 미확인 ({note}) — "
+          "'패밀리 전체 FTO 낮음'·'해외 권리 없음' 결론 보류 ==")
+    axis = (data.get("axes") or {}).get("family") if isinstance(data, dict) else None
+    if isinstance(axis, dict) and axis.get("reason"):
+        print(f"   사유: {axis['reason']}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--claims", required=True, help="kipris_claims.py 출력 claims.json")
     ap.add_argument("--legal", required=True,
                     help="kipris_legal_status.py 출력 legal_status.json")
+    ap.add_argument("--expansion", help="(선택) kipris_expand.py 출력 expansion.json — "
+                    "패밀리 커버리지 미확인 시 FTO 결론 보류 표기")
     a = ap.parse_args()
 
     claims, err = load_json(a.claims, "claims.json")
@@ -119,6 +188,11 @@ def main():
     legal, err = load_json(a.legal, "legal_status.json")
     if err:
         print(f"경고: {err} — 전 문헌 상태 미확인 처리", file=sys.stderr)
+
+    # 선택: 패밀리 커버리지 표기(KR 문헌 단위 게이트와 별개 — 판정을 바꾸지 않는다).
+    # expansion을 현재 claims의 출원번호 집합과 대조해 위조·타 특허 산출물을 거부한다.
+    if a.expansion:
+        report_family_coverage(a.expansion, list(claims))
 
     verified, unverified = [], []
     for appno in sorted(claims):

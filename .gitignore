@@ -13,6 +13,8 @@ legal_*.xml
 !tests/fixtures/legal_*.xml
 claims.json
 legal_status.json
+expansion.json
+gp_discovery_*.json
 kipris_results.tsv
 search_manifest.json
 gp_results.tsv
