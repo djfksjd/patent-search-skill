@@ -11,9 +11,10 @@ bib_*.xml
 !tests/fixtures/bib_*.xml
 legal_*.xml
 !tests/fixtures/legal_*.xml
-claims.json
-legal_status.json
-expansion.json
+# 접미사 포함 — .corrupt.<ts> 백업(kipris_claims/legal_status)도 함께 차단
+claims.json*
+legal_status.json*
+expansion.json*
 gp_discovery_*.json
 kipris_results.tsv
 search_manifest.json
