@@ -127,6 +127,39 @@ def _many_priorart_xml(an, n):
         f"{rows}</priorArtDocumentsInfoArray></item></body></response>").encode()
 
 
+def _bib_xml(an, prior_art_block):
+    """priorArt 블록만 바꿔가며 seed 서지 응답을 만든다."""
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>00'
+        '</resultCode></header><body><item><biblioSummaryInfoArray><biblioSummaryInfo>'
+        f"<applicationNumber>{an}</applicationNumber><inventionTitle>T</inventionTitle>"
+        "</biblioSummaryInfo></biblioSummaryInfoArray>"
+        f"{prior_art_block}</item></body></response>").encode()
+
+
+def test_prior_art_missing_container_is_unknown(expand_mod, monkeypatch, tmp_path):
+    """priorArtDocumentsInfoArray 컨테이너 자체가 없으면 '인용 0건 complete'가
+    아니라 unknown(계약 2 — 부재≠없음). Codex 잔여 게이트 반영."""
+    out = str(tmp_path / "out")
+    run_main(expand_mod, monkeypatch, ["1020990000001", "--out", out],
+             lambda url, reserve: _bib_xml("1020990000001", ""))  # 컨테이너 없음
+    pa = read_expansion(out)["axes"]["prior_art_backward"]
+    assert pa["status"] == "unknown"
+    assert pa["n_candidates"] == 0
+
+
+def test_prior_art_empty_container_is_complete(expand_mod, monkeypatch, tmp_path):
+    """컨테이너가 명시적으로 존재하면서 비어 있으면 인용 0건 complete로 본다 —
+    부재(unknown)와 명시적 0건(complete)을 구분한다."""
+    out = str(tmp_path / "out")
+    run_main(expand_mod, monkeypatch, ["1020990000001", "--out", out],
+             lambda url, reserve: _bib_xml(
+                 "1020990000001", "<priorArtDocumentsInfoArray></priorArtDocumentsInfoArray>"))
+    pa = read_expansion(out)["axes"]["prior_art_backward"]
+    assert pa["status"] == "complete"
+    assert pa["n_candidates"] == 0
+
+
 def test_citation_limit_reached_is_partial(expand_mod, monkeypatch, tmp_path):
     out = str(tmp_path / "out")
     # 25건 priorArt > 상한 20 → partial(limit_reached)

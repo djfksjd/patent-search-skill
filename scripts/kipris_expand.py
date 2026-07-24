@@ -286,6 +286,10 @@ def parse_seed(root, an):
     # documentsNumber에서만 정확 추출한다. 내용이 있는데 documentsNumber가 없는 요소는
     # 미지 구조 → prior_art_unparsed로 표시(unknown으로 흐르게). 완전 빈 요소는 무시.
     prior, prior_unparsed = [], False
+    # 컨테이너(priorArtDocumentsInfoArray) 자체의 존재 여부를 기록한다 — 부재는
+    # "이 응답이 인용 정보를 담지 않음"(unknown)이고, 컨테이너가 있는데 0건일 때만
+    # 인용 0건 complete로 본다(계약 2의 빈 값≠없음 구분, family와 동일).
+    prior_had_container = root.find(".//priorArtDocumentsInfoArray") is not None
     for pe in root.findall(".//priorArtDocumentsInfoArray/priorArtDocumentsInfo"):
         docnum = (pe.findtext("documentsNumber") or "").strip()
         if not docnum:
@@ -304,6 +308,7 @@ def parse_seed(root, an):
         })
     result["prior_art"] = prior
     result["prior_art_unparsed"] = prior_unparsed
+    result["prior_art_had_container"] = prior_had_container
     return result
 
 
@@ -377,12 +382,18 @@ def build_axes(seeds, seed_records, seed_errors, limits, dropped_seeds,
 
     pa_unparsed = any(seed_records[an].get("prior_art_unparsed")
                       for an in seeds if an in seed_records)
+    # priorArt 컨테이너가 아예 없던 seed가 하나라도 있으면 커버리지 unknown —
+    # 컨테이너 부재를 "인용 0건 complete"로 오인하면 fail-open(Codex 잔여 #1)
+    pa_missing_container = any(
+        not seed_records[an].get("prior_art_had_container")
+        for an in seeds if an in seed_records)
     if n_ok == 0:
         pa_status = "failed"
     elif cit_limit_hit or limit_hit:
         pa_status = "partial"
-    elif pa_unparsed:
-        # documentsNumber 없는 비어있지 않은 priorArt 요소 → 스키마 이상. complete 금지(NO-GO #3)
+    elif pa_unparsed or pa_missing_container:
+        # documentsNumber 없는 비어있지 않은 요소(스키마 이상) 또는 컨테이너 부재
+        # → complete 금지, unknown(계약 2). 컨테이너가 있으면서 0건일 때만 complete.
         pa_status = "unknown"
     elif n_failed:
         pa_status = "partial"
