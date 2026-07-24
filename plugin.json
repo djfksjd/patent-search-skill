@@ -1,0 +1,5 @@
+{
+  "name": "patent-search",
+  "version": "0.1.0",
+  "description": "특허 선행기술조사 + 차별화 전략 스킬 — KIPRIS(국내)+Google Patents(글로벌) 조사로 특허성(신규성·진보성) 관련성과 예비 FTO 관찰 필요도를 분리 판정하고 claim chart·청구항 차별화 가이드를 만든다. Loaded directly by agy (Antigravity CLI), Claude Code, and codex plugins."
+}

@@ -1,0 +1,18 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "djfksjd",
+  "owner": {
+    "name": "djfksjd",
+    "url": "https://github.com/djfksjd"
+  },
+  "metadata": {
+    "description": "Handcrafted plugins for serious AI-assisted work."
+  },
+  "plugins": [
+    {
+      "name": "patent-search",
+      "source": "./",
+      "description": "특허 선행기술조사 + 차별화 전략 스킬 — KIPRIS(국내)+Google Patents(글로벌) 조사로 특허성·예비 FTO를 분리 판정하고 claim chart·청구항 차별화 가이드를 만든다."
+    }
+  ]
+}

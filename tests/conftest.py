@@ -15,7 +15,7 @@ import sys
 import pytest
 
 TESTS_DIR = pathlib.Path(__file__).resolve().parent
-SCRIPTS_DIR = TESTS_DIR.parent / "scripts"
+SCRIPTS_DIR = TESTS_DIR.parent / "skills" / "patent-search" / "scripts"
 FIXTURES_DIR = TESTS_DIR / "fixtures"
 
 FAKE_KEY = "TEST-fake key+val/==NOT-REAL"  # quote/quote_plus 변이가 서로 달라지는 문자 포함

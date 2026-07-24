@@ -1,0 +1,32 @@
+{
+  "name": "patent-search",
+  "version": "0.1.0",
+  "description": "특허 선행기술조사 + 차별화 전략 스킬 — KIPRIS(국내)+Google Patents(글로벌)를 조사해 특허성·예비 FTO를 분리 판정하고 claim chart·청구항 차별화 가이드를 만든다.",
+  "author": {
+    "name": "djfksjd",
+    "url": "https://github.com/djfksjd"
+  },
+  "homepage": "https://github.com/djfksjd/patent-search-skill",
+  "repository": "https://github.com/djfksjd/patent-search-skill",
+  "license": "MIT",
+  "keywords": [
+    "korea",
+    "patent",
+    "prior-art",
+    "kipris"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "patent-search",
+    "shortDescription": "특허 선행기술조사 + 차별화 전략",
+    "longDescription": "발명 아이템을 받아 KIPRIS(한국)·Google Patents(글로벌)를 조사하고, 특허성(신규성·진보성) 관련성 축과 예비 FTO(Freedom-to-Operate) 관찰 필요도 축을 분리해 판정한 선행기술조사 리포트를 만든다. '내 구성요소 × 선행문헌' claim chart, 독립항·종속항 차별화 가이드, 회피설계 옵션을 산출한다. 법적 상태 이력(WIPO ST.27)으로 FTO 게이트를 fail-closed 검사하고, 모든 판정에 문헌번호·문단/청구항·직접 인용·URL·확인일을 강제한다. 변리사 감정을 대체하지 않으며 침해 여부 법적 판단은 하지 않는다.",
+    "developerName": "djfksjd",
+    "category": "Research",
+    "capabilities": [
+      "Bash",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/djfksjd/patent-search-skill"
+  }
+}
