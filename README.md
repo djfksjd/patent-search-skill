@@ -95,6 +95,8 @@ Python 3 표준 라이브러리만 사용합니다(추가 설치 불필요).
 | `scripts/fto_gate.py` | FTO 게이트(오프라인) — 법적 상태 미확인 문헌을 "판정 불가"로 나열, 미확인이 있으면 종료 코드 2. `--expansion`으로 패밀리 커버리지 미확인 시 결론 보류 표기 | `python3 scripts/fto_gate.py --claims ./work/claims.json --legal ./work/legal_status.json --expansion ./work/expansion.json` |
 | `scripts/claim_chart_validate.py` | claim chart JSON을 `references/claim_chart_schema.json`(v1)으로 검증 — E/I/P 근거 누락 등 위반 나열, 위반 시 종료 코드 1 | `python3 scripts/claim_chart_validate.py ./work/chart.json` |
 
+> `scripts/kipris_http.py`는 CLI가 아니라 위 KIPRIS 스크립트들이 공용으로 쓰는 내부 모듈입니다 — 리다이렉트 안전 opener + 응답·에러의 키 마스킹(로그·명령행에 키 미노출).
+
 동작 원칙:
 
 - **HTTPS 고정** 호출이며, 키는 `KIPRIS_KEY` 환경변수 또는 스킬 폴더 `.env`에서 읽고 **어떤 출력·저장 파일에도 남기지 않습니다**(에러 메시지·원본 XML까지 마스킹). 키를 명령행 인자나 URL에 직접 넣지 마세요.
