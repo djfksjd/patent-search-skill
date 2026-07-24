@@ -139,6 +139,8 @@ def test_citation_limit_reached_is_partial(expand_mod, monkeypatch, tmp_path):
     assert pa["status"] == "partial"
     assert pa["n_candidates"] == 20  # 상한에서 절단
     assert pa["applied_limit"] == 20
+    # NO-GO #2: 축별 절단 사유는 공통 'all_seeds_processed'가 아니라 'limit_reached'
+    assert pa["termination_reason"] == "limit_reached"
 
 
 def _family_xml(an):
@@ -262,6 +264,157 @@ def test_refuses_overwrite_without_force(expand_mod, monkeypatch, tmp_path):
         run_main(expand_mod, monkeypatch, ["1020990000001", "--out", str(out)],
                  lambda url, reserve: fixture_bytes("bib_expand_priorart.xml"))
     assert "기존 산출물" in str(e.value.code)
+
+
+# ---- NO-GO #1: CLI로 계약 상한을 상향할 수 없다(낮추는 방향만) ----
+
+def test_cli_cannot_raise_hard_caps(expand_mod, monkeypatch, tmp_path):
+    out = str(tmp_path / "out")
+    # 인용 상한을 1000으로 올려도 계약 20으로 고정 → 25건 중 20건만
+    run_main(expand_mod, monkeypatch,
+             ["1020990000001", "--out", out, "--max-citation-candidates", "1000"],
+             lambda url, reserve: _many_priorart_xml("1020990000001", 25))
+    exp = read_expansion(out)
+    assert exp["limits"]["max_citation_candidates"] == 20  # 상수로 고정
+    assert exp["axes"]["prior_art_backward"]["n_candidates"] == 20
+
+
+def test_cli_can_lower_caps(expand_mod, monkeypatch, tmp_path):
+    out = str(tmp_path / "out")
+    run_main(expand_mod, monkeypatch,
+             ["1020990000001", "--out", out, "--max-citation-candidates", "5"],
+             lambda url, reserve: _many_priorart_xml("1020990000001", 25))
+    exp = read_expansion(out)
+    assert exp["limits"]["max_citation_candidates"] == 5  # 낮추는 방향은 반영
+
+
+def test_monthly_hard_stop_cannot_be_raised_without_override(expand_mod, monkeypatch, tmp_path):
+    out = str(tmp_path / "out")
+    run_main(expand_mod, monkeypatch,
+             ["1020990000001", "--out", out, "--monthly-hard-stop", "10000"],
+             lambda url, reserve: fixture_bytes("bib_expand_priorart.xml"))
+    exp = read_expansion(out)
+    # override 없이는 800으로 고정
+    assert exp["limits"]["monthly_hard_stop"] == 800
+    assert exp["limits"]["override_monthly"] is False
+
+
+def test_monthly_hard_stop_raised_with_override(expand_mod, monkeypatch, tmp_path):
+    out = str(tmp_path / "out")
+    run_main(expand_mod, monkeypatch,
+             ["1020990000001", "--out", out, "--monthly-hard-stop", "10000",
+              "--override-monthly"],
+             lambda url, reserve: fixture_bytes("bib_expand_priorart.xml"))
+    exp = read_expansion(out)
+    assert exp["limits"]["monthly_hard_stop"] == 10000  # override 시에만 상향
+    assert exp["limits"]["override_monthly"] is True
+
+
+def test_max_seeds_cannot_exceed_hard_cap(expand_mod, monkeypatch, tmp_path):
+    out = str(tmp_path / "out")
+    seeds = [f"10209900000{i:02d}" for i in range(1, 9)]  # 8 seeds
+
+    def fetch(url, reserve):
+        reserve()
+        an = url.split("applicationNumber=")[1].split("&")[0]
+        return _family_xml(an)
+
+    run_main(expand_mod, monkeypatch, seeds + ["--out", out, "--max-seeds", "50"], fetch)
+    exp = read_expansion(out)
+    assert exp["limits"]["max_seeds"] == 5  # 상수로 고정
+    assert len(exp["seeds"]) == 5 and exp["dropped_seeds"] == 3
+
+
+# ---- NO-GO #3: fail-closed 스키마(garbage가 complete로 흐르지 않음) ----
+
+def _garbage_family_xml(an):
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>00'
+        '</resultCode></header><body><item><biblioSummaryInfoArray><biblioSummaryInfo>'
+        f"<applicationNumber>{an}</applicationNumber><inventionTitle>T</inventionTitle>"
+        "</biblioSummaryInfo></biblioSummaryInfoArray><familyInfoArray><familyInfo>"
+        "<unexpected>garbage</unexpected></familyInfo></familyInfoArray>"
+        "</item></body></response>").encode()
+
+
+def test_garbage_family_element_is_unknown_not_candidate(expand_mod, monkeypatch, tmp_path):
+    out = str(tmp_path / "out")
+    run_main(expand_mod, monkeypatch, ["1020990000001", "--out", out],
+             lambda url, reserve: _garbage_family_xml("1020990000001"))
+    fam = read_expansion(out)["axes"]["family"]
+    # 미지 구조 → unknown, 가짜 후보('garbage') 채택 금지
+    assert fam["status"] == "unknown"
+    assert fam["n_candidates"] == 0
+    assert all(c.get("document") != "garbage" for c in fam["candidates"])
+
+
+def _no_appno_xml():
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>00'
+        '</resultCode></header><body><item><biblioSummaryInfoArray><biblioSummaryInfo>'
+        "<inventionTitle>T</inventionTitle></biblioSummaryInfo></biblioSummaryInfoArray>"
+        "<priorArtDocumentsInfoArray><priorArtDocumentsInfo>"
+        "<documentsNumber>KR1020210147858 A</documentsNumber></priorArtDocumentsInfo>"
+        "</priorArtDocumentsInfoArray></item></body></response>").encode()
+
+
+def test_missing_response_appno_is_seed_failure(expand_mod, monkeypatch, tmp_path):
+    """응답에 applicationNumber가 없으면 귀속 확인 불가 — fail-closed(complete로 흐르지 않음)."""
+    out = str(tmp_path / "out")
+    with pytest.raises(SystemExit) as e:
+        run_main(expand_mod, monkeypatch, ["1020990000001", "--out", out],
+                 lambda url, reserve: _no_appno_xml())
+    assert e.value.code == 1
+    exp = read_expansion(out)
+    err = exp["seed_errors"][0]["error"]
+    assert "applicationNumber 없음" in err or "귀속" in err
+    assert exp["axes"]["prior_art_backward"]["status"] == "failed"
+
+
+def _priorart_no_docnum_xml(an):
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?><response><header><resultCode>00'
+        '</resultCode></header><body><item><biblioSummaryInfoArray><biblioSummaryInfo>'
+        f"<applicationNumber>{an}</applicationNumber><inventionTitle>T</inventionTitle>"
+        "</biblioSummaryInfo></biblioSummaryInfoArray><priorArtDocumentsInfoArray>"
+        "<priorArtDocumentsInfo><examinerQuotationFlag>Y</examinerQuotationFlag>"
+        "</priorArtDocumentsInfo></priorArtDocumentsInfoArray></item></body></response>"
+    ).encode()
+
+
+def test_priorart_without_docnumber_is_unknown(expand_mod, monkeypatch, tmp_path):
+    """documentsNumber 없는 비어있지 않은 priorArt 요소 → 스키마 이상, complete 금지."""
+    out = str(tmp_path / "out")
+    run_main(expand_mod, monkeypatch, ["1020990000001", "--out", out],
+             lambda url, reserve: _priorart_no_docnum_xml("1020990000001"))
+    pa = read_expansion(out)["axes"]["prior_art_backward"]
+    assert pa["status"] == "unknown"
+    assert pa["n_candidates"] == 0
+
+
+# ---- NO-GO #5: 기존 seed 서지 응답 재사용(재호출·덮어쓰기 금지) ----
+
+def test_existing_bib_reused_no_call(expand_mod, monkeypatch, tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    original = fixture_bytes("bib_expand_priorart.xml")
+    (out / "bib_1020990000001.xml").write_bytes(original)
+    calls = []
+
+    def fetch(url, reserve):
+        calls.append(url)  # 재사용이면 절대 호출되면 안 됨
+        reserve()
+        return b"SHOULD-NOT-BE-USED"
+
+    run_main(expand_mod, monkeypatch, ["1020990000001", "--out", str(out)], fetch)
+    exp = read_expansion(str(out))
+    assert calls == []  # 재호출 없음(쿼터 절약)
+    assert exp["reused_seeds"] == ["1020990000001"]
+    assert exp["api_calls"] == 0
+    # 기존 파일 내용 보존(덮어쓰기 금지 — 증거 보존)
+    assert (out / "bib_1020990000001.xml").read_bytes() == original
+    # 재사용한 응답으로 정상 파싱
+    assert exp["axes"]["prior_art_backward"]["n_candidates"] == 3
 
 
 def test_discovery_not_evidence_documented(expand_mod, monkeypatch, tmp_path):

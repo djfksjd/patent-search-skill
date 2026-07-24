@@ -37,9 +37,14 @@ def test_all_verified_exit_0(fto_mod, monkeypatch, tmp_path, capsys):
     assert "판정 불가" not in out
 
 
-def _expansion(family_status, n=0):
-    return {"axes": {"family": {"status": family_status, "n_candidates": n,
-                                "reason": "빈 familyInfo를 없음으로 단정하지 않는다"}}}
+def _expansion(family_status, n=0, seeds=(AN1, AN2), tool="kipris_expand",
+               schema_version=1, source="getBibliographyDetailInfoSearch: familyInfoArray"):
+    """정품 kipris_expand 산출물 형태(NO-GO #4 검증 통과용 필수 필드 포함)."""
+    rec = {"tool": tool, "schema_version": schema_version, "seeds": list(seeds),
+           "axes": {"family": {"status": family_status, "n_candidates": n,
+                               "source": source,
+                               "reason": "빈 familyInfo를 없음으로 단정하지 않는다"}}}
+    return rec
 
 
 def test_expansion_family_unknown_holds_coverage(fto_mod, monkeypatch, tmp_path, capsys):
@@ -56,11 +61,56 @@ def test_expansion_family_unknown_holds_coverage(fto_mod, monkeypatch, tmp_path,
 def test_expansion_family_complete_reports_coverage(fto_mod, monkeypatch, tmp_path, capsys):
     c = write(tmp_path / "claims.json", {AN1: CLAIMS[AN1]})
     l = write(tmp_path / "legal_status.json", {AN1: LEGAL_OK})
-    x = write(tmp_path / "expansion.json", _expansion("complete", n=3))
+    x = write(tmp_path / "expansion.json", _expansion("complete", n=3, seeds=(AN1,)))
     run_gate(fto_mod, monkeypatch, c, l, x)
     out = capsys.readouterr().out
     assert "패밀리 커버리지: complete" in out
     assert "발견≠증거" in out
+
+
+# ---- NO-GO #4: 위조·타 특허 expansion 거부(complete여도) ----
+
+def test_expansion_wrong_tool_rejected(fto_mod, monkeypatch, tmp_path, capsys):
+    c = write(tmp_path / "claims.json", {AN1: CLAIMS[AN1]})
+    l = write(tmp_path / "legal_status.json", {AN1: LEGAL_OK})
+    # 위조: 최소 껍데기만 있는 complete
+    x = write(tmp_path / "expansion.json",
+              {"axes": {"family": {"status": "complete"}}})
+    run_gate(fto_mod, monkeypatch, c, l, x)
+    out = capsys.readouterr().out
+    assert "패밀리 커버리지 미확인" in out
+    assert "complete" not in out.split("미확인")[0]  # complete로 오인 표기 없음
+
+
+def test_expansion_seeds_missing_claims_rejected(fto_mod, monkeypatch, tmp_path, capsys):
+    """다른 특허의 expansion(seeds가 현재 claims를 포괄하지 않음) → complete 인정 거부."""
+    c = write(tmp_path / "claims.json", {AN1: CLAIMS[AN1]})
+    l = write(tmp_path / "legal_status.json", {AN1: LEGAL_OK})
+    x = write(tmp_path / "expansion.json",
+              _expansion("complete", n=3, seeds=("1029990000000",)))  # 무관 seed
+    run_gate(fto_mod, monkeypatch, c, l, x)
+    out = capsys.readouterr().out
+    assert "패밀리 커버리지 미확인" in out and "포괄" in out
+
+
+def test_expansion_missing_source_rejected(fto_mod, monkeypatch, tmp_path, capsys):
+    c = write(tmp_path / "claims.json", {AN1: CLAIMS[AN1]})
+    l = write(tmp_path / "legal_status.json", {AN1: LEGAL_OK})
+    x = write(tmp_path / "expansion.json",
+              _expansion("complete", n=3, seeds=(AN1,), source=None))
+    run_gate(fto_mod, monkeypatch, c, l, x)
+    out = capsys.readouterr().out
+    assert "패밀리 커버리지 미확인" in out and "source" in out
+
+
+def test_expansion_bad_schema_version_rejected(fto_mod, monkeypatch, tmp_path, capsys):
+    c = write(tmp_path / "claims.json", {AN1: CLAIMS[AN1]})
+    l = write(tmp_path / "legal_status.json", {AN1: LEGAL_OK})
+    x = write(tmp_path / "expansion.json",
+              _expansion("complete", n=3, seeds=(AN1,), schema_version=99))
+    run_gate(fto_mod, monkeypatch, c, l, x)
+    out = capsys.readouterr().out
+    assert "패밀리 커버리지 미확인" in out and "schema_version" in out
 
 
 def test_expansion_missing_file_holds_coverage(fto_mod, monkeypatch, tmp_path, capsys):

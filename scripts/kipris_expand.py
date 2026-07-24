@@ -42,17 +42,23 @@ except ImportError:  # pragma: no cover - 비 POSIX 폴백
 
 BASE = ("https://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/"
         "getBibliographyDetailInfoSearch")
+# 패밀리 문헌번호로 인정하는 알려진 필드명(정확 추출 — 미지 필드를 채택하지 않는다)
+FAMILY_NUM_FIELDS = ("applicationNumber", "familyApplicationNumber", "documentNumber",
+                     "familyDocumentNumber", "publicationNumber", "registrationNumber",
+                     "number")
 FAMILY_SOURCE = "getBibliographyDetailInfoSearch: familyInfoArray/familyInfo"
 PRIORART_SOURCE = "getBibliographyDetailInfoSearch: priorArtDocumentsInfoArray/priorArtDocumentsInfo"
 MAX_BODY = 20 * 1024 * 1024
 CALLS = [0]
 
-# 기본 상한(계약 3·5). CLI로 조정 가능하나 기본값이 계약을 만족한다.
-DEF_MAX_SEEDS = 5
-DEF_MAX_CALLS = 15            # 확장 축 추가분(전체 파이프라인 40회의 일부 — SKILL.md 참조)
-DEF_MAX_FAMILY = 10
-DEF_MAX_CITATION = 20
-DEF_MONTHLY_HARD_STOP = 800
+# 계약 상한(계약 3·5) — **코드 상수로 고정**. CLI 인자는 이 상한을 낮추는 방향으로만
+# 반영된다(effective = min(요청, 상수)). 상향은 허용하지 않는다 — 월 hard stop만
+# --override-monthly(실제 잔량 확인 후)로 넘길 수 있다. NO-GO #1 대응.
+HARD_MAX_SEEDS = 5
+HARD_MAX_CALLS = 15          # 확장 축 추가분(전체 파이프라인 40회의 일부 — SKILL.md 참조)
+HARD_MAX_FAMILY = 10
+HARD_MAX_CITATION = 20
+HARD_MONTHLY_STOP = 800
 
 
 class BudgetExhausted(RuntimeError):
@@ -234,46 +240,58 @@ def parse_seed(root, an):
                            "API 스키마 변경/차단 의심, 원본 XML 확인")
     if code != "00":
         raise RuntimeError(f"resultCode {code}: {root.findtext('.//resultMsg') or ''}")
+    # NO-GO #3(fail-closed): 응답 출원번호는 **존재하고 요청과 일치**해야 한다. 부재는
+    # 요청 문헌 귀속을 확인할 수 없으므로 실패(fail-open 금지 — kipris_claims/legal 패턴 이식).
     resp_an = (root.findtext(".//applicationNumber") or "").replace("-", "").strip()
-    if resp_an and resp_an != an:
+    if not resp_an:
+        raise RuntimeError("schema_error: 응답에 applicationNumber 없음 — "
+                           "요청 문헌 귀속 확인 불가(API 스키마 변경/차단 의심)")
+    if resp_an != an:
         raise RuntimeError(f"응답 출원번호 불일치: 요청 {an} / 응답 {resp_an} — API 동작 변경 의심")
 
     # --- 패밀리 ---
+    # 문헌번호는 **알려진 필드명에서만** 추출한다. 미지 구조(예: <unexpected>garbage</>)를
+    # 첫 값으로 채택하지 않는다 — 그런 요소는 family_unparsed로 표시해 unknown으로 흐르게 한다.
     family_elems = root.findall(".//familyInfoArray/familyInfo")
-    family, nonempty = [], 0
+    family, nonempty, family_unparsed = [], 0, False
     for fe in family_elems:
         fields = {c.tag: (c.text or "").strip() for c in fe if (c.text or "").strip()}
         if not fields:
             continue  # <familyInfo/> 등 빈 요소 — "패밀리 없음"으로 단정하지 않는다(unknown)
         nonempty += 1
-        # 문헌번호로 쓸 만한 필드를 관대하게 탐색(비어있지 않은 실 응답 fixture 확보 전까지 방어적)
         num = ""
-        for k in ("applicationNumber", "familyApplicationNumber", "documentNumber",
-                  "familyDocumentNumber", "publicationNumber", "number"):
+        for k in FAMILY_NUM_FIELDS:
             if fields.get(k):
                 num = fields[k]
                 break
-        if not num:  # 번호 필드를 못 찾으면 첫 비어있지 않은 값을 원본으로 보존
-            num = next(iter(fields.values()))
+        if not num:
+            # 내용은 있으나 알려진 문헌번호 필드가 없다 → 미지 구조. 가짜 후보를 만들지 않고
+            # unknown 신호만 남긴다(garbage가 complete로 흐르지 못하게 — NO-GO #3).
+            family_unparsed = True
+            continue
         norm = normalize_doc_number(num)
-        # 국가는 명시 필드(countryCode 등)를 우선하고, 없으면 번호 접두에서 추론
         country = (fields.get("countryCode") or fields.get("country")
                    or norm["country"])
         family.append({"document": num, "fields": fields, "country": country,
                        "normalized_appno": norm["normalized_appno"]})
     result = {
         "family": family,
-        # familyInfo 요소가 하나라도 존재했는가(빈 요소 포함) — 스키마 존재 확인용
         "family_had_element": bool(family_elems),
-        # 요소는 있었으나 전부 비어있었는가 → 실 KIPRIS의 <familyInfo/> 케이스(unknown)
         "family_all_empty": bool(family_elems) and nonempty == 0,
+        # 내용은 있으나 알려진 번호 필드가 없는 familyInfo가 있었는가 → 커버리지 unknown
+        "family_unparsed": family_unparsed,
     }
 
     # --- 후방 인용(priorArt) ---
-    prior = []
+    # documentsNumber에서만 정확 추출한다. 내용이 있는데 documentsNumber가 없는 요소는
+    # 미지 구조 → prior_art_unparsed로 표시(unknown으로 흐르게). 완전 빈 요소는 무시.
+    prior, prior_unparsed = [], False
     for pe in root.findall(".//priorArtDocumentsInfoArray/priorArtDocumentsInfo"):
         docnum = (pe.findtext("documentsNumber") or "").strip()
         if not docnum:
+            has_content = any((c.text or "").strip() for c in pe)
+            if has_content:
+                prior_unparsed = True  # documentsNumber 없는 비어있지 않은 요소 — 스키마 이상
             continue
         flag = (pe.findtext("examinerQuotationFlag") or "").strip()
         norm = normalize_doc_number(docnum)
@@ -285,6 +303,7 @@ def parse_seed(root, an):
             "normalized_appno": norm["normalized_appno"],
         })
     result["prior_art"] = prior
+    result["prior_art_unparsed"] = prior_unparsed
     return result
 
 
@@ -308,8 +327,8 @@ def build_axes(seeds, seed_records, seed_errors, limits, dropped_seeds,
         if rec is None:
             any_empty = True  # 실패 seed → 그 문헌 패밀리 미확인
             continue
-        if rec["family_all_empty"] or not rec["family_had_element"]:
-            any_empty = True
+        if rec["family_all_empty"] or not rec["family_had_element"] or rec.get("family_unparsed"):
+            any_empty = True  # 빈/부재/미지 구조 → 커버리지 미확인
         for f in rec["family"]:
             any_docs = True
             key = f["normalized_appno"] or f["document"]
@@ -356,10 +375,15 @@ def build_axes(seeds, seed_records, seed_errors, limits, dropped_seeds,
         if cit_limit_hit:
             break
 
+    pa_unparsed = any(seed_records[an].get("prior_art_unparsed")
+                      for an in seeds if an in seed_records)
     if n_ok == 0:
         pa_status = "failed"
     elif cit_limit_hit or limit_hit:
         pa_status = "partial"
+    elif pa_unparsed:
+        # documentsNumber 없는 비어있지 않은 priorArt 요소 → 스키마 이상. complete 금지(NO-GO #3)
+        pa_status = "unknown"
     elif n_failed:
         pa_status = "partial"
     else:
@@ -368,7 +392,10 @@ def build_axes(seeds, seed_records, seed_errors, limits, dropped_seeds,
                  "(후방 인용). priorArt 0건은 이 응답에 인용 문헌이 없다는 뜻일 뿐, 다른 경로의 "
                  "인용 부재를 보장하지 않는다.")
 
-    def axis(status, source, applied_limit, reason, candidates):
+    def axis(status, source, applied_limit, reason, candidates, axis_limit_hit):
+        # NO-GO #2: 축별 절단은 축 고유의 'limit_reached'로 기록한다 — main 공통 사유
+        # (all_seeds_processed 등)로 덮어쓰지 않는다.
+        axis_term = "limit_reached" if axis_limit_hit else termination_reason
         return {
             "status": status,
             "source": source,
@@ -378,7 +405,7 @@ def build_axes(seeds, seed_records, seed_errors, limits, dropped_seeds,
             "n_seeds_failed": n_failed,
             "n_calls": CALLS[0],
             "applied_limit": applied_limit,
-            "termination_reason": termination_reason,
+            "termination_reason": axis_term,
             "raw_response_paths": raw_paths,
             "n_candidates": len(candidates),
             "reason": reason,
@@ -387,10 +414,10 @@ def build_axes(seeds, seed_records, seed_errors, limits, dropped_seeds,
 
     return {
         "family": axis(fam_status, FAMILY_SOURCE, limits["max_family_candidates"],
-                       fam_reason, family_candidates),
+                       fam_reason, family_candidates, fam_limit_hit or limit_hit),
         "prior_art_backward": axis(pa_status, PRIORART_SOURCE,
                                    limits["max_citation_candidates"], pa_reason,
-                                   citation_candidates),
+                                   citation_candidates, cit_limit_hit or limit_hit),
         "cited_by": {
             "status": "unsupported",
             "source": None,
@@ -484,24 +511,51 @@ def main():
     ap.add_argument("seeds", nargs="*", help="seed 출원번호(예: 1020260075385)")
     ap.add_argument("--file", help="seed 목록 파일(줄당 1개, # 주석 허용)")
     ap.add_argument("--out", default=".", help="출력 폴더")
-    ap.add_argument("--max-seeds", type=int, default=DEF_MAX_SEEDS)
-    ap.add_argument("--max-calls", type=int, default=DEF_MAX_CALLS,
-                    help="이번 실행의 API 호출 상한(확장 축 추가분, 기본 15)")
-    ap.add_argument("--max-family-candidates", type=int, default=DEF_MAX_FAMILY)
-    ap.add_argument("--max-citation-candidates", type=int, default=DEF_MAX_CITATION)
-    ap.add_argument("--monthly-hard-stop", type=int, default=DEF_MONTHLY_HARD_STOP)
+    ap.add_argument("--max-seeds", type=int, default=HARD_MAX_SEEDS,
+                    help=f"seed 상한(계약 {HARD_MAX_SEEDS} — 낮추는 방향만 반영)")
+    ap.add_argument("--max-calls", type=int, default=HARD_MAX_CALLS,
+                    help=f"이번 실행 API 호출 상한(계약 {HARD_MAX_CALLS} — 낮추는 방향만 반영)")
+    ap.add_argument("--max-family-candidates", type=int, default=HARD_MAX_FAMILY,
+                    help=f"패밀리 후보 상한(계약 {HARD_MAX_FAMILY} — 낮추는 방향만 반영)")
+    ap.add_argument("--max-citation-candidates", type=int, default=HARD_MAX_CITATION,
+                    help=f"인용 후보 상한(계약 {HARD_MAX_CITATION} — 낮추는 방향만 반영)")
+    ap.add_argument("--monthly-hard-stop", type=int, default=HARD_MONTHLY_STOP,
+                    help=f"월 원장 hard stop(계약 {HARD_MONTHLY_STOP} — --override-monthly "
+                         "없이는 상향 불가)")
     ap.add_argument("--override-monthly", action="store_true",
-                    help="월 원장 hard stop 무시(실제 잔량 확인 후에만)")
+                    help="월 원장 hard stop을 넘어 진행/상향(실제 잔량 확인 후에만)")
     ap.add_argument("--gp-discovery", metavar="QUERY",
                     help="Google Patents discovery_only 폴백(격리 — 핵심 의존 아님)")
     ap.add_argument("--force", action="store_true", help="기존 expansion.json 덮어쓰기")
     a = ap.parse_args()
-    if a.max_seeds < 1 or a.max_calls < 1:
-        ap.error("--max-seeds/--max-calls는 1 이상")
+    if min(a.max_seeds, a.max_calls, a.max_family_candidates,
+           a.max_citation_candidates, a.monthly_hard_stop) < 1:
+        ap.error("모든 상한 인자는 1 이상")
+
+    # 계약 상한 고정: CLI는 낮추는 방향만 반영한다(effective = min(요청, 상수)) — NO-GO #1.
+    def clamp(name, requested, hard):
+        eff = min(requested, hard)
+        if requested > hard:
+            print(f"경고: --{name} {requested} > 계약 상한 {hard} — {hard}으로 고정",
+                  file=sys.stderr)
+        return eff
+
+    max_seeds = clamp("max-seeds", a.max_seeds, HARD_MAX_SEEDS)
+    max_calls = clamp("max-calls", a.max_calls, HARD_MAX_CALLS)
+    max_family = clamp("max-family-candidates", a.max_family_candidates, HARD_MAX_FAMILY)
+    max_citation = clamp("max-citation-candidates", a.max_citation_candidates, HARD_MAX_CITATION)
+    # 월 hard stop은 override 없이는 절대 상향 불가(계약 5). override면 요청값 그대로 허용.
+    if a.override_monthly:
+        monthly_stop = a.monthly_hard_stop
+    else:
+        monthly_stop = min(a.monthly_hard_stop, HARD_MONTHLY_STOP)
+        if a.monthly_hard_stop > HARD_MONTHLY_STOP:
+            print(f"경고: --monthly-hard-stop {a.monthly_hard_stop} > 계약 {HARD_MONTHLY_STOP} — "
+                  f"{HARD_MONTHLY_STOP}으로 고정(상향은 --override-monthly 필요)", file=sys.stderr)
 
     seeds_all = parse_seed_args(a)
-    dropped_seeds = max(0, len(seeds_all) - a.max_seeds)
-    seeds = seeds_all[:a.max_seeds]
+    dropped_seeds = max(0, len(seeds_all) - max_seeds)
+    seeds = seeds_all[:max_seeds]
 
     os.makedirs(a.out, exist_ok=True)
     exp_path = os.path.join(a.out, "expansion.json")
@@ -510,33 +564,47 @@ def main():
     key = load_key(__file__)
     redact = make_redactor(key)
     skill_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    limits = {"max_seeds": a.max_seeds, "max_calls": a.max_calls,
-              "max_family_candidates": a.max_family_candidates,
-              "max_citation_candidates": a.max_citation_candidates,
-              "monthly_hard_stop": a.monthly_hard_stop}
+    limits = {"max_seeds": max_seeds, "max_calls": max_calls,
+              "max_family_candidates": max_family,
+              "max_citation_candidates": max_citation,
+              "monthly_hard_stop": monthly_stop,
+              "override_monthly": a.override_monthly,
+              "hard_caps": {"max_seeds": HARD_MAX_SEEDS, "max_calls": HARD_MAX_CALLS,
+                            "max_family_candidates": HARD_MAX_FAMILY,
+                            "max_citation_candidates": HARD_MAX_CITATION,
+                            "monthly_hard_stop": HARD_MONTHLY_STOP}}
 
-    seed_records, seed_errors, raw_paths = {}, [], []
+    seed_records, seed_errors, raw_paths, reused_seeds = {}, [], [], []
     consecutive_zero, termination_reason, budget_stop = 0, "all_seeds_processed", False
     month_total = [None]
     run_calls = [0]
 
     def reserve():
-        if run_calls[0] >= a.max_calls:
-            raise BudgetExhausted(f"이번 실행 호출 상한 {a.max_calls}회 도달")
-        month_total[0] = reserve_one(skill_dir, a.monthly_hard_stop, a.override_monthly)
+        if run_calls[0] >= max_calls:
+            raise BudgetExhausted(f"이번 실행 호출 상한 {max_calls}회 도달")
+        month_total[0] = reserve_one(skill_dir, monthly_stop, a.override_monthly)
         run_calls[0] += 1
 
     try:
         with acquire_run_lock(skill_dir):
             prev_seen = set()  # 지금까지 발견한 후보 키(신규 판정용)
             for an in seeds:
+                rp = os.path.join(a.out, f"bib_{an}.xml")
                 try:
-                    params = urllib.parse.urlencode({"applicationNumber": an, "ServiceKey": key})
-                    body = fetch(f"{BASE}?{params}", reserve)
-                    body = redact_body(body, key)
-                    rp = os.path.join(a.out, f"bib_{an}.xml")
-                    with open(rp, "wb") as f:
-                        f.write(body)
+                    # 계약 1: 기존 seed 서지 응답(bib_<출원번호>.xml)이 있으면 재파싱 재사용
+                    # — 재호출·덮어쓰기 금지(쿼터 절약·증거 보존). NO-GO #5.
+                    if os.path.exists(rp):
+                        with open(rp, "rb") as f:
+                            body = f.read()
+                        reused_seeds.append(an)
+                        print(f"{an}: 기존 bib_{an}.xml 재사용(재호출 안 함)")
+                    else:
+                        params = urllib.parse.urlencode(
+                            {"applicationNumber": an, "ServiceKey": key})
+                        body = fetch(f"{BASE}?{params}", reserve)
+                        body = redact_body(body, key)
+                        with open(rp, "wb") as f:
+                            f.write(body)
                     raw_paths.append(f"bib_{an}.xml")
                     rec = parse_seed(ET.fromstring(body), an)
                 except (BudgetExhausted, QuotaHardStop) as e:
@@ -564,7 +632,7 @@ def main():
                       + (" (빈 familyInfo — unknown)" if rec["family_all_empty"] else "")
                       + f" / 후방 인용 {pa_n}건 / 신규 후보 {len(new_keys)}건")
                 # 후보 상한 도달 확인(계약 3)
-                if len(prev_seen) >= (a.max_family_candidates + a.max_citation_candidates):
+                if len(prev_seen) >= (max_family + max_citation):
                     termination_reason = "candidate_limit_reached"
                     print("후보 상한 도달 — 종료(partial: limit_reached)", file=sys.stderr)
                     break
@@ -597,6 +665,7 @@ def main():
         "seeds": seeds,
         "seeds_requested": seeds_all,
         "dropped_seeds": dropped_seeds,
+        "reused_seeds": reused_seeds,  # 기존 bib_<출원번호>.xml 재사용(재호출 안 함 — 계약 1)
         "limits": limits,
         "api_calls": CALLS[0],
         "month_calls_estimate": month_total[0],
