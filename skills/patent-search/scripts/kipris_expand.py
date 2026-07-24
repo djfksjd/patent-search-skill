@@ -34,6 +34,10 @@
 import argparse, contextlib, json, os, re, sys, time
 import urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
+import kipris_http
+
+KIPRIS_HOSTS = ("plus.kipris.or.kr",)
+GP_HOSTS = ("patents.google.com",)
 
 try:
     import fcntl  # POSIX 파일 락(동시 실행 lock + 원장 예약 직렬화)
@@ -86,22 +90,12 @@ def load_key(script_path):
 
 
 def make_redactor(key):
-    variants = {key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-                urllib.parse.quote_plus(key)}
-    def redact(text):
-        for v in variants:
-            if v:
-                text = text.replace(v, "[REDACTED]")
-        return text
-    return redact
+    # 대소문자 혼합 %XX 인코딩까지 잡는 정규식 마스킹(kipris_http.make_redact)
+    return kipris_http.make_redact(key)
 
 
 def redact_body(body, key):
-    for v in (key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-              urllib.parse.quote_plus(key)):
-        if v:
-            body = body.replace(v.encode(), b"[REDACTED]")
-    return body
+    return kipris_http.make_redact_bytes(key)(body)
 
 
 @contextlib.contextmanager
@@ -188,10 +182,9 @@ def fetch(url, reserve, tries=3):
         reserve()  # 요청 전 원자적 예약(계약 5)
         CALLS[0] += 1
         try:
-            body = urllib.request.urlopen(url, timeout=30).read(MAX_BODY)
-            if len(body) >= MAX_BODY:
-                raise RuntimeError("응답이 20MB 한도에서 절단됨")
-            return body
+            return kipris_http.open_validated(url, 30, KIPRIS_HOSTS, MAX_BODY)
+        except kipris_http.RedirectBlocked:
+            raise  # 외부 호스트 유출 시도 — 재시도 없이 즉시 실패
         except urllib.error.HTTPError as e:
             if e.code == 429 or e.code >= 500:
                 last = e
@@ -459,8 +452,11 @@ def gp_discovery(query, out_dir, redact, timeout=8.0, tries=2):
     last = None
     for _ in range(tries):
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "patent-search-skill"})
-            body = urllib.request.urlopen(req, timeout=timeout).read(MAX_BODY)
+            # 리다이렉트 차단·호스트 검증(patents.google.com만). 키 미포함이라
+            # 유출 위험은 없으나 임의 호스트로의 리다이렉트는 막는다.
+            body = kipris_http.open_validated(
+                url, timeout, GP_HOSTS, MAX_BODY,
+                headers={"User-Agent": "patent-search-skill"})
             text = body.decode("utf-8", "replace")
             if "Sorry" in text[:2000] or not text.lstrip().startswith("{"):
                 # 차단 페이지(HTML) — 우회하지 않는다

@@ -34,7 +34,9 @@
 import argparse, json, os, re, sys, time
 import urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
+import kipris_http
 
+KIPRIS_HOSTS = ("plus.kipris.or.kr",)
 BASE = ("https://plus.kipris.or.kr/openapi/rest/legStatusST27InfoSearchService/"
         "BasicInfo")
 STATUS_SOURCE = "legStatusST27InfoSearchService/BasicInfo(법적 상태 이력, WIPO ST.27)"
@@ -69,22 +71,12 @@ def load_key(script_path):
 
 
 def make_redactor(key):
-    variants = {key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-                urllib.parse.quote_plus(key)}
-    def redact(text):
-        for v in variants:
-            if v:
-                text = text.replace(v, "[REDACTED]")
-        return text
-    return redact
+    # 대소문자 혼합 %XX 인코딩까지 잡는 정규식 마스킹(kipris_http.make_redact)
+    return kipris_http.make_redact(key)
 
 
 def redact_body(body, key):
-    for v in (key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-              urllib.parse.quote_plus(key)):
-        if v:
-            body = body.replace(v.encode(), b"[REDACTED]")
-    return body
+    return kipris_http.make_redact_bytes(key)(body)
 
 
 def fetch(url, tries=3):
@@ -93,10 +85,9 @@ def fetch(url, tries=3):
     for _ in range(tries):
         CALLS[0] += 1
         try:
-            body = urllib.request.urlopen(url, timeout=30).read(MAX_BODY)
-            if len(body) >= MAX_BODY:
-                raise RuntimeError("응답이 20MB 한도에서 절단됨")
-            return body
+            return kipris_http.open_validated(url, 30, KIPRIS_HOSTS, MAX_BODY)
+        except kipris_http.RedirectBlocked:
+            raise  # 외부 호스트 유출 시도 — 재시도 없이 즉시 실패
         except urllib.error.HTTPError as e:
             if e.code == 429 or e.code >= 500:
                 last = e
@@ -227,9 +218,10 @@ def main():
             # 기존 정상 레코드를 오류로 덮어쓰지 않는다 (증거 보존) — 오류는 별도 키에 기록
             if isinstance(out.get(an), dict) and out[an].get("legal_events"):
                 out[an]["last_refresh_error"] = err
+                out[an]["partial"] = True  # 최신성 미확인 — 실패 신호(Codex #6)
                 print(f"{an}: 재조회 실패 — 기존 정상 레코드 유지 ({err})", file=sys.stderr)
             else:
-                out[an] = {"error": err}
+                out[an] = {"error": err, "partial": True}
                 print(f"{an}: 실패 — {err}", file=sys.stderr)
             if not_subscribed:
                 # 미가입은 전 문헌 공통 — 추가 호출은 쿼터 낭비이므로 중단.
@@ -239,8 +231,9 @@ def main():
                     if isinstance(out.get(rest), dict) and out[rest].get("legal_events"):
                         out[rest]["last_refresh_error"] = redact(
                             f"이번 실행에서 조회 생략(미가입) — {ERR31_MSG}")
+                        out[rest]["partial"] = True  # 최신성 미확인(Codex #6)
                     else:
-                        out[rest] = {"error": redact(ERR31_MSG)}
+                        out[rest] = {"error": redact(ERR31_MSG), "partial": True}
                     failed += 1
                 break
             time.sleep(0.5)

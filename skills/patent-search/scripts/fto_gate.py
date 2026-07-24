@@ -30,6 +30,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 
 # kipris_legal_status.py 산출 계약과 동기 유지 — 값이 다르면 게이트가 막는다(fail-closed)
@@ -41,6 +42,14 @@ ST27_EVENT_KEYS = {
     "registrationNumber", "registrationDate", "publicationNumber",
     "publicationDate", "openNumber", "openingDate", "trialNumber",
     "demurrerNumber", "supplySerialNumber",
+}
+# 실제 '법적 상태 이벤트'임을 나타내는 핵심 필드 — 이벤트 코드 또는 이벤트 일자.
+# trialNumber·registrationNumber 같은 단순 번호만 있는 항목은 상태 이벤트로 보지
+# 않는다(Codex #3: trialNumber 하나만으로 '상태 확인됨'이 되던 구멍).
+STATUS_SIGNIFICANT_KEYS = {
+    "keyEventCode", "detailLawEventCode", "detailedEventCode", "stateCode",
+    "previousStageCode", "currentStageCode", "eventIndicatorCode",
+    "nationalEventCode", "eventDate",
 }
 
 
@@ -55,6 +64,39 @@ def load_json(path, label):
     if not isinstance(data, dict):
         return None, f"{label} 형식 오류: 최상위가 객체가 아님"
     return data, None
+
+
+def classify_claims(rec):
+    """(valid, reason) — claims.json의 해당 레코드가 정상 청구항 레코드인지 검사.
+
+    fail-closed: FTO는 청구항이 있어야 성립한다. 조회가 실패(error)했거나 최근
+    재조회가 실패(last_refresh_error)했거나 청구항이 비었거나 계약 필드가 어긋나면
+    상태가 아무리 정상이어도 판정 불가다 — 게이트가 legal만 보고 claims 실패
+    레코드를 통과시키던 구멍을 막는다(Codex #2)."""
+    if not isinstance(rec, dict):
+        return False, "claims 레코드 형식 오류(객체 아님)"
+    if rec.get("error"):
+        return False, f"청구항 조회 오류: {rec['error']}"
+    if rec.get("last_refresh_error"):
+        return False, f"청구항 재조회 실패: {rec['last_refresh_error']}"
+    claims = rec.get("claims")
+    if not isinstance(claims, list) or not claims:
+        return False, "청구항 없음/0건 — FTO 판정 불가"
+    if not all(isinstance(c, str) and c.strip() for c in claims):
+        return False, "빈/비문자 청구항 포함 — 정상 청구항 레코드 아님"
+    sv = rec.get("schema_version")
+    if not isinstance(sv, int) or isinstance(sv, bool) or sv != 2:
+        return False, f"claims schema_version {sv!r} 미지원(v2 레코드만)"
+    if rec.get("current_enforceable_claims") != "unknown":
+        return False, "current_enforceable_claims != 'unknown' — 계약 위반 레코드"
+    if rec.get("claims_source") != EXPECTED_CLAIMS_SOURCE:
+        return False, (f"claims_source {rec.get('claims_source')!r} — 검증된 소스"
+                       f"({EXPECTED_CLAIMS_SOURCE})의 산출물이 아님")
+    n = rec.get("n_claims")
+    # 정품 kipris_claims 레코드는 항상 n_claims를 싣는다 — 부재/불일치는 위조·손상
+    if not isinstance(n, int) or isinstance(n, bool) or n != len(claims):
+        return False, f"n_claims({n!r})가 실제 청구항 수({len(claims)})와 불일치/부재"
+    return True, None
 
 
 def classify(appno, legal):
@@ -84,6 +126,37 @@ def classify(appno, legal):
     if not all(valid_event(ev) for ev in events):
         return False, ("legal_events에 비정상 항목(빈/비객체/유효한 ST.27 필드 값 없음) "
                        "포함 — kipris_legal_status.py 산출물이 아닌 것으로 의심")
+
+    def valid_event_date(v):
+        # ST.27 eventDate는 YYYYMMDD(8자리) — 달력까지 검증(garbage·2026-99-99 배제)
+        if not (isinstance(v, str) and re.fullmatch(r"\d{8}", v.strip())):
+            return False
+        try:
+            datetime.datetime.strptime(v.strip(), "%Y%m%d")
+            return True
+        except ValueError:
+            return False
+
+    def has_status_signal(ev):
+        for k, v in ev.items():
+            if k not in STATUS_SIGNIFICANT_KEYS:
+                continue
+            if k == "eventDate":
+                if valid_event_date(v):
+                    return True
+            elif isinstance(v, str) and v.strip():  # 이벤트/상태 코드
+                return True
+        return False
+    if not any(has_status_signal(ev) for ev in events):
+        # 이벤트 코드 또는 **유효한 일자**가 하나도 없으면(단순 번호·garbage 일자만)
+        # 실제 '법적 상태'를 확인했다고 볼 수 없다(Codex #3) — 판정 불가.
+        return False, ("legal_events에 상태 이벤트 신호(이벤트 코드 또는 유효 eventDate) "
+                       "없음 — 단순 번호/잡값으로는 상태 확인으로 인정하지 않는다")
+    n_ev = rec.get("n_events")
+    if n_ev is not None and (not isinstance(n_ev, int) or isinstance(n_ev, bool)
+                             or n_ev != len(events)):
+        # 자기보고 n_events가 실제 이벤트 수와 다르면 위조·손상 레코드(Codex #3)
+        return False, f"n_events({n_ev!r})가 실제 이벤트 수({len(events)})와 불일치"
     if rec.get("current_enforceable_claims") != "unknown":
         return False, ("current_enforceable_claims != 'unknown' — 이력 수집으로 "
                        "현재 청구항을 확정하지 않는다는 계약 위반 레코드")
@@ -99,8 +172,9 @@ def classify(appno, legal):
     if not isinstance(retrieved, str):
         return False, f"retrieved_at 형식 불량: {retrieved!r} — 수집 시점 확인 불가"
     try:
-        # 달력 검증까지 수행(정규식은 2026-99-99를 통과시킨다) — 앞 16자만 파싱
-        datetime.datetime.strptime(retrieved[:16], "%Y-%m-%dT%H:%M")
+        # **전체 문자열**을 kipris_legal_status의 산출 형식으로 파싱한다 — 앞 16자만
+        # 보면 '2026-07-24T12:34TRAILING' 같은 잡값이 통과한다(Codex #3).
+        datetime.datetime.strptime(retrieved, "%Y-%m-%dT%H:%M:%S%z")
     except ValueError:
         return False, f"retrieved_at 형식 불량: {retrieved!r} — 수집 시점 확인 불가"
     return True, f"이벤트 {len(events)}건, retrieved_at={retrieved}"
@@ -108,6 +182,10 @@ def classify(appno, legal):
 
 EXPECTED_EXPANSION_TOOL = "kipris_expand"
 EXPECTED_EXPANSION_SCHEMA = 1
+# kipris_claims.py의 claims_source 값과 동기 — 값까지 대조해 정품 산출물만 인정
+EXPECTED_CLAIMS_SOURCE = "getBibliographyDetailInfoSearch(공보 서지)"
+# kipris_expand.FAMILY_SOURCE와 동기 — 값까지 대조해 위조 산출물을 거부한다
+EXPECTED_FAMILY_SOURCE = "getBibliographyDetailInfoSearch: familyInfoArray/familyInfo"
 
 
 def validate_expansion(data, claims_appnos):
@@ -138,8 +216,11 @@ def validate_expansion(data, claims_appnos):
     axis = (data.get("axes") or {}).get("family")
     if not isinstance(axis, dict):
         return False, "family 축 없음"
-    if not axis.get("source"):
-        return False, "family 축 source 없음 — 산출물 신뢰 불가"
+    # source는 **존재만이 아니라 값까지** 대조한다 — 'garbage' 등 임의 값이면
+    # 위조 산출물이다(Codex #9, legal 게이트의 status_source 검증과 정합).
+    if axis.get("source") != EXPECTED_FAMILY_SOURCE:
+        return False, (f"family source={axis.get('source')!r} — 검증된 소스"
+                       f"({EXPECTED_FAMILY_SOURCE})의 산출물이 아님(위조 의심)")
     if axis.get("status") != "complete":
         return False, f"family status={axis.get('status')!r}"
     return True, f"후보 {axis.get('n_candidates', '?')}건"
@@ -196,6 +277,12 @@ def main():
 
     verified, unverified = [], []
     for appno in sorted(claims):
+        # 청구항 레코드 자체가 정상이어야 하고(그 다음) 법적 상태도 확인돼야 한다 —
+        # 둘 중 하나라도 불능이면 판정 불가(fail-closed).
+        c_ok, c_reason = classify_claims(claims.get(appno))
+        if not c_ok:
+            unverified.append((appno, f"청구항 미확보 — {c_reason}"))
+            continue
         ok, reason = classify(appno, legal)
         (verified if ok else unverified).append((appno, reason))
 

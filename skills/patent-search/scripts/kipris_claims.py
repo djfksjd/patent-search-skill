@@ -21,7 +21,9 @@
 import argparse, json, os, re, sys, time
 import urllib.error, urllib.parse, urllib.request
 import xml.etree.ElementTree as ET
+import kipris_http
 
+KIPRIS_HOSTS = ("plus.kipris.or.kr",)
 BASE = ("https://plus.kipris.or.kr/kipo-api/kipi/patUtiModInfoSearchSevice/"
         "getBibliographyDetailInfoSearch")
 MAX_BODY = 20 * 1024 * 1024
@@ -41,22 +43,12 @@ def load_key(script_path):
 
 
 def make_redactor(key):
-    variants = {key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-                urllib.parse.quote_plus(key)}
-    def redact(text):
-        for v in variants:
-            if v:
-                text = text.replace(v, "[REDACTED]")
-        return text
-    return redact
+    # 대소문자 혼합 %XX 인코딩까지 잡는 정규식 마스킹(kipris_http.make_redact)
+    return kipris_http.make_redact(key)
 
 
 def redact_body(body, key):
-    for v in (key, urllib.parse.quote(key, safe=""), urllib.parse.quote(key),
-              urllib.parse.quote_plus(key)):
-        if v:
-            body = body.replace(v.encode(), b"[REDACTED]")
-    return body
+    return kipris_http.make_redact_bytes(key)(body)
 
 
 def fetch(url, tries=3):
@@ -64,10 +56,9 @@ def fetch(url, tries=3):
     for _ in range(tries):
         CALLS[0] += 1
         try:
-            body = urllib.request.urlopen(url, timeout=30).read(MAX_BODY)
-            if len(body) >= MAX_BODY:
-                raise RuntimeError("응답이 20MB 한도에서 절단됨")
-            return body
+            return kipris_http.open_validated(url, 30, KIPRIS_HOSTS, MAX_BODY)
+        except kipris_http.RedirectBlocked:
+            raise  # 외부 호스트 유출 시도 — 재시도 없이 즉시 실패
         except urllib.error.HTTPError as e:
             if e.code == 429 or e.code >= 500:
                 last = e
@@ -157,9 +148,12 @@ def main():
             if code != "00":
                 raise RuntimeError(f"resultCode {code}: {root.findtext('.//resultMsg') or ''}")
             resp_an = (root.findtext(".//applicationNumber") or "").replace("-", "").strip()
-            if resp_an and resp_an != an:
-                raise RuntimeError(f"응답 출원번호 불일치: 요청 {an} / 응답 {resp_an} — "
-                                   "API 동작 변경 의심")
+            # 응답 출원번호가 **없거나** 요청과 다르면 귀속 불가 — fail-closed. 부재를
+            # 허용하면 다른(또는 미상) 문헌의 청구항이 요청 번호로 저장된다(Codex #5).
+            if resp_an != an:
+                raise RuntimeError(
+                    f"응답 출원번호 불일치/부재: 요청 {an} / 응답 {resp_an or '없음'} — "
+                    "잘못된 문헌 귀속 방지(fail-closed), 원본 XML 확인")
             claims = [c for c in
                       ((ci.findtext("claim") or "").strip()
                        for ci in root.findall(".//claimInfo")) if c]
@@ -173,9 +167,10 @@ def main():
             # 기존 정상 레코드를 오류로 덮어쓰지 않는다 (증거 보존) — 오류는 별도 키에 기록
             if isinstance(out.get(an), dict) and out[an].get("claims"):
                 out[an]["last_refresh_error"] = err
+                out[an]["partial"] = True  # 최신성 미확인 — 실패 신호(Codex #6)
                 print(f"{an}: 재조회 실패 — 기존 정상 레코드 유지 ({err})", file=sys.stderr)
             else:
-                out[an] = {"error": err}
+                out[an] = {"error": err, "partial": True}
                 print(f"{an}: 실패 — {err}", file=sys.stderr)
             time.sleep(0.5)
             continue
