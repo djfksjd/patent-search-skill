@@ -1,5 +1,7 @@
 # patent-search — Claude Code 선행기술조사 스킬
 
+[![tests](https://github.com/djfksjd/patent-search-skill/actions/workflows/tests.yml/badge.svg)](https://github.com/djfksjd/patent-search-skill/actions/workflows/tests.yml)
+
 발명 아이템을 주면 **선행 특허 조사 리포트 + claim chart + 청구항 차별화 가이드**를 만들어 주는 [Claude Code](https://claude.com/claude-code) 스킬입니다. KIPRIS(한국)와 Google Patents(글로벌)를 조사해 **특허성(신규성·진보성) 관련성**과 **예비 FTO(Freedom-to-Operate) 관찰 필요도**를 분리해서 판정합니다.
 
 > ⚠️ **면책**: 이 스킬의 산출물은 법률 자문이 아닙니다. 변리사의 선행기술조사·감정을 대체하지 않으며, 실제 출원·사업화 전에는 반드시 변리사 검토를 받으세요. 리포트의 모든 판정은 "관련성 높음 / 관찰 필요" 수준의 참고 정보입니다.

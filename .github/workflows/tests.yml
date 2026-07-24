@@ -1,0 +1,24 @@
+# patent-search unit tests
+#
+# fixture 기반 단위 테스트만 실행한다 — 네트워크 없음, 합성 XML fixture 사용.
+# 라이브 KIPRIS 스모크는 의도적으로 넣지 않는다: KIPRIS는 API 키(시크릿)와
+# 월 1,000회 쿼터가 걸려 있어 스케줄 라이브 호출은 쿼터를 태운다. CI는
+# pytest(네트워크 차단)만 돌린다. 스크립트는 표준 라이브러리만 쓰므로
+# 테스트 실행에 pytest만 설치하면 된다.
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install pytest
+      - run: python3 -m pytest tests/ -q
